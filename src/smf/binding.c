@@ -238,20 +238,22 @@ void smf_bearer_binding(smf_sess_t *sess)
             } else {
                 ogs_assert(strcmp(bearer->pcc_rule.name, pcc_rule->name) == 0);
 
-                if ((pcc_rule->qos.mbr.downlink &&
-                    bearer->qos.mbr.downlink != pcc_rule->qos.mbr.downlink) ||
-                    (pcc_rule->qos.mbr.uplink &&
-                     bearer->qos.mbr.uplink != pcc_rule->qos.mbr.uplink) ||
-                    (pcc_rule->qos.gbr.downlink &&
-                    bearer->qos.gbr.downlink != pcc_rule->qos.gbr.downlink) ||
-                    (pcc_rule->qos.gbr.uplink &&
-                    bearer->qos.gbr.uplink != pcc_rule->qos.gbr.uplink)) {
-                    /* Update QoS parameter */
-                    memcpy(&bearer->qos, &pcc_rule->qos, sizeof(ogs_qos_t));
+                // if ((pcc_rule->qos.mbr.downlink &&
+                //     bearer->qos.mbr.downlink != pcc_rule->qos.mbr.downlink) ||
+                //     (pcc_rule->qos.mbr.uplink &&
+                //      bearer->qos.mbr.uplink != pcc_rule->qos.mbr.uplink) ||
+                //     (pcc_rule->qos.gbr.downlink &&
+                //     bearer->qos.gbr.downlink != pcc_rule->qos.gbr.downlink) ||
+                //     (pcc_rule->qos.gbr.uplink &&
+                //     bearer->qos.gbr.uplink != pcc_rule->qos.gbr.uplink)) {
+                //     /* Update QoS parameter */
+                //     memcpy(&bearer->qos, &pcc_rule->qos, sizeof(ogs_qos_t));
 
-                    /* Update Bearer Request encodes updated QoS parameter */
-                    qos_presence = true;
-                }
+                //     /* Update Bearer Request encodes updated QoS parameter */
+                //     qos_presence = true;
+                // }
+
+                qos_presence = true;
             }
 
         /*
