@@ -534,6 +534,7 @@ void smf_qos_flow_binding(smf_sess_t *sess)
 
             qos_flow = smf_qos_flow_find_by_pcc_rule_id(sess, pcc_rule->id);
             if (!qos_flow) {
+                ogs_info("========= qos flow not present. creating it... ");
                 if (pcc_rule->num_of_flow == 0) {
                     /* TFT is mandatory in
                      * activate dedicated EPS bearer context request */
@@ -645,6 +646,7 @@ void smf_qos_flow_binding(smf_sess_t *sess)
                  */
                 if (smf_pf_find_by_flow(
                     qos_flow, flow->direction, flow->description) != NULL) {
+                    ogs_info("========= flow duplicated, continueing....");
                     continue;
                 }
 
@@ -710,6 +712,8 @@ void smf_qos_flow_binding(smf_sess_t *sess)
             }
 
             if (qos_flow_created == true) {
+                ogs_info("========= qos flow created, updating bearer tft and qos....");
+
                 smf_bearer_tft_update(qos_flow);
                 smf_bearer_qos_update(qos_flow);
 
@@ -718,14 +722,17 @@ void smf_qos_flow_binding(smf_sess_t *sess)
                 ogs_list_add(&sess->qos_flow_to_modify_list,
                                 &qos_flow->to_modify_node);
             } else {
+                ogs_info("========= qos flow modified....");
                 pfcp_flags |= OGS_PFCP_MODIFY_NETWORK_REQUESTED;
 
                 if (ogs_list_count(&qos_flow->pf_to_add_list) > 0) {
+                    ogs_info("========= qos flow modified, updating bearer tft....");
                     pfcp_flags |= OGS_PFCP_MODIFY_TFT_ADD;
                     smf_bearer_tft_update(qos_flow);
                 }
                 if (qos_presence == true) {
                     pfcp_flags |= OGS_PFCP_MODIFY_QOS_MODIFY;
+                    ogs_info("========= qos flow modified, updating bearer qos....");
                     smf_bearer_qos_update(qos_flow);
                 }
 
@@ -761,6 +768,7 @@ void smf_qos_flow_binding(smf_sess_t *sess)
     }
 
     if (ogs_list_count(&sess->qos_flow_to_modify_list)) {
+        ogs_info("========= qos flow modify list not null");
         ogs_assert(OGS_OK ==
                 smf_5gc_pfcp_send_qos_flow_list_modification_request(
                     sess, NULL, pfcp_flags, 0));
