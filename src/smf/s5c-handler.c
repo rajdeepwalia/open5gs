@@ -1435,7 +1435,7 @@ void smf_s5c_handle_bearer_resource_command(
     }
 
     if (cmd->flow_quality_of_service.presence) {
-        ogs_debug("qos present")
+        ogs_debug("qos present");
         ogs_gtp2_flow_qos_t flow_qos;
 
         decoded = ogs_gtp2_parse_flow_qos(
