@@ -347,11 +347,14 @@ int ngap_handle_pdu_session_resource_modify_response_transfer(
     }
 
     if (ogs_list_count(&sess->qos_flow_to_modify_list) == 0) {
+        ogs_info("======= no qos flow ignoring...");
         ogs_error("[%s:%d] No QoS flow", smf_ue->supi, sess->psi);
-        smf_sbi_send_sm_context_update_error_log(
-                stream, OGS_SBI_HTTP_STATUS_BAD_REQUEST,
-                "No QoS flow", smf_ue->supi);
-        goto cleanup;
+        // smf_sbi_send_sm_context_update_error_log(
+        //         stream, OGS_SBI_HTTP_STATUS_BAD_REQUEST,
+        //         "No QoS flow", smf_ue->supi);
+        // goto cleanup;
+
+        rv = OGS_OK;
     }
 
     ogs_assert(OGS_OK ==

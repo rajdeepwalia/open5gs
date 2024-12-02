@@ -740,6 +740,7 @@ void smf_qos_flow_binding(smf_sess_t *sess)
                                 &qos_flow->to_modify_node);
             }
         } else if (pcc_rule->type == OGS_PCC_RULE_TYPE_REMOVE) {
+            ogs_info("========= qos flow removed....");
             qos_flow = smf_qos_flow_find_by_pcc_rule_id(sess, pcc_rule->id);
 
             if (!qos_flow) {

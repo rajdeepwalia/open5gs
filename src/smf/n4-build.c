@@ -317,6 +317,9 @@ ogs_pkbuf_t *smf_n4_build_pdr_to_modify_list(
 ogs_pkbuf_t *smf_n4_build_qos_flow_to_modify_list(
         uint8_t type, smf_sess_t *sess, ogs_pfcp_xact_t *xact)
 {
+
+    ogs_info("======= building qos flow to modify list")
+
     ogs_pfcp_message_t *pfcp_message = NULL;
     ogs_pfcp_session_modification_request_t *req = NULL;
     ogs_pkbuf_t *pkbuf = NULL;
