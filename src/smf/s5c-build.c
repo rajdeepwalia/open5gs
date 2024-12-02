@@ -526,6 +526,7 @@ ogs_pkbuf_t *smf_s5c_build_update_bearer_request(
     }
 
     /* Bearer QoS */
+    ogs_debug("qos_presence = %d", qos_presence);
     if (qos_presence == true) {
         memset(&bearer_qos, 0, sizeof(bearer_qos));
         bearer_qos.qci = bearer->qos.index;

@@ -256,12 +256,12 @@ void smf_bearer_binding(smf_sess_t *sess)
                 qos_presence = true;
             }
 
-        /*
-         * We only use the method of adding a flow to an existing tft.
-         *
-         * EPC: OGS_GTP2_TFT_CODE_ADD_PACKET_FILTERS_TO_EXISTING_TFT
-         * 5GC: OGS_NAS_QOS_CODE_MODIFY_EXISTING_QOS_RULE_AND_ADD_PACKET_FILTERS
-         */
+            /*
+            * We only use the method of adding a flow to an existing tft.
+            *
+            * EPC: OGS_GTP2_TFT_CODE_ADD_PACKET_FILTERS_TO_EXISTING_TFT
+            * 5GC: OGS_NAS_QOS_CODE_MODIFY_EXISTING_QOS_RULE_AND_ADD_PACKET_FILTERS
+            */
             ogs_list_init(&bearer->pf_to_add_list);
 
             for (j = 0; j < pcc_rule->num_of_flow; j++) {
@@ -305,20 +305,20 @@ void smf_bearer_binding(smf_sess_t *sess)
 
                 rv = ogs_ipfw_compile_rule(
                         &pf->ipfw_rule, pf->flow_description);
-/*
- * Refer to lib/ipfw/ogs-ipfw.h
- * Issue #338
- *
- * <DOWNLINK/BI-DIRECTIONAL>
- * GX : permit out from <P-CSCF_RTP_IP> <P-CSCF_RTP_PORT> to <UE_IP> <UE_PORT>
- * -->
- * RULE : Source <P-CSCF_RTP_IP> <P-CSCF_RTP_PORT> Destination <UE_IP> <UE_PORT>
- *
- * <UPLINK>
- * GX : permit out from <P-CSCF_RTP_IP> <P-CSCF_RTP_PORT> to <UE_IP> <UE_PORT>
- * -->
- * RULE : Source <UE_IP> <UE_PORT> Destination <P-CSCF_RTP_IP> <P-CSCF_RTP_PORT>
- */
+            /*
+            * Refer to lib/ipfw/ogs-ipfw.h
+            * Issue #338
+            *
+            * <DOWNLINK/BI-DIRECTIONAL>
+            * GX : permit out from <P-CSCF_RTP_IP> <P-CSCF_RTP_PORT> to <UE_IP> <UE_PORT>
+            * -->
+            * RULE : Source <P-CSCF_RTP_IP> <P-CSCF_RTP_PORT> Destination <UE_IP> <UE_PORT>
+            *
+            * <UPLINK>
+            * GX : permit out from <P-CSCF_RTP_IP> <P-CSCF_RTP_PORT> to <UE_IP> <UE_PORT>
+            * -->
+            * RULE : Source <UE_IP> <UE_PORT> Destination <P-CSCF_RTP_IP> <P-CSCF_RTP_PORT>
+            */
                 if (flow->direction == OGS_FLOW_UPLINK_ONLY)
                     ogs_ipfw_rule_swap(&pf->ipfw_rule);
 
