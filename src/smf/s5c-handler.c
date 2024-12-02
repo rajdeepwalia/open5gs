@@ -1481,7 +1481,7 @@ void smf_s5c_handle_bearer_resource_command(
         h.teid = sess->sgw_s5c_teid;
         h.type = OGS_GTP2_UPDATE_BEARER_REQUEST_TYPE;
 
-        ogs_debug("qos_update = %d", qos_update);
+        ogs_info("========= qos_update = %d", qos_update);
         pkbuf = smf_s5c_build_update_bearer_request(
                 h.type, bearer, cmd->procedure_transaction_id.u8,
                 tft_update ? &tft : NULL, qos_update);
