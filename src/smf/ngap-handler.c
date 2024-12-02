@@ -352,9 +352,11 @@ int ngap_handle_pdu_session_resource_modify_response_transfer(
         // smf_sbi_send_sm_context_update_error_log(
         //         stream, OGS_SBI_HTTP_STATUS_BAD_REQUEST,
         //         "No QoS flow", smf_ue->supi);
-        // goto cleanup;
+        
 
         rv = OGS_OK;
+
+        goto cleanup;
     }
 
     ogs_assert(OGS_OK ==
