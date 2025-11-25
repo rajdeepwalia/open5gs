@@ -83,11 +83,14 @@ typedef struct sgwc_sess_s {
     uint32_t        sgw_s5c_teid;   /* SGW-S5C-TEID is derived from NODE */
     uint32_t        pgw_s5c_teid;   /* PGW-S5C-TEID is received from PGW */
 
-    uint64_t        sgwc_sxa_seid;  /* SGW-C SEID is dervied from NODE */
+    uint64_t        sgwc_sxa_seid;  /* SGW-C SEID is derived from NODE */
     uint64_t        sgwu_sxa_seid;  /* SGW-U SEID is received from Peer */
 
     /* APN Configuration */
     ogs_session_t   session;
+
+    /* PDN Address Allocation (PAA) */
+    ogs_paa_t       paa;
 
     ogs_list_t      bearer_list;
 

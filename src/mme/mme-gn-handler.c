@@ -243,8 +243,8 @@ static mme_sess_t *mme_ue_session_from_gtp1_pdp_ctx(mme_ue_t *mme_ue, const ogs_
     ogs_gtp1_qos_profile_to_qci(qos_pdec, &qci);
     ogs_sess->qos.index = qci;
     ogs_sess->qos.arp.priority_level = qos_pdec->qos_profile.arp; /* 3GPP TS 23.401 Annex E Table E.2 */
-    ogs_sess->qos.arp.pre_emption_capability = 0; /* ignored as per 3GPP TS 23.401 Annex E */
-    ogs_sess->qos.arp.pre_emption_vulnerability = 0; /* ignored as per 3GPP TS 23.401 Annex E */
+    ogs_sess->qos.arp.pre_emption_capability = 0; /* operator policy, hardcoded, 3GPP TS 23.401 Annex E */
+    ogs_sess->qos.arp.pre_emption_vulnerability = 1; /* operator policy, hardcoded, 3GPP TS 23.401 Annex E */
     if (qos_pdec->data_octet6_to_13_present) {
         ogs_sess->ambr.downlink = qos_pdec->dec_mbr_kbps_dl * 1000;
         ogs_sess->ambr.uplink = qos_pdec->dec_mbr_kbps_ul * 1000;
@@ -289,6 +289,10 @@ static mme_sess_t *mme_ue_session_from_gtp1_pdp_ctx(mme_ue_t *mme_ue, const ogs_
     bearer->enb_s1u_ip.ipv4 = 1;
     bearer->enb_s1u_ip.addr = 0;
     bearer->enb_s1u_teid = 0xffffffff;
+    bearer->qos.index = ogs_sess->qos.index;
+    bearer->qos.arp.priority_level = ogs_sess->qos.arp.priority_level;
+    bearer->qos.arp.pre_emption_capability = ogs_sess->qos.arp.pre_emption_capability;
+    bearer->qos.arp.pre_emption_vulnerability = ogs_sess->qos.arp.pre_emption_vulnerability;
 
     return sess;
 }
@@ -403,7 +407,7 @@ int mme_gn_handle_sgsn_context_response(
              ogs_min(gtp1_mm_ctx.ms_network_capability_len, sizeof(mme_ue->ms_network_capability) - 1));
     /* TODO: how to fill first byte of mme_ue->ms_network_capability ? */
 
-    mme_ue->nas_eps.ksi = gtp1_mm_ctx.ksi;
+    mme_ue->nas_eps.mme.ksi = gtp1_mm_ctx.ksi;
     /* 3GPP TS 33.401 A.10, A.11: */
     mme_ue->noncemme = ogs_random32();
     /* 3GPP TS 33.401 7.2.6.2 Establishment of keys for cryptographically protected radio bearers: */
@@ -421,10 +425,12 @@ int mme_gn_handle_sgsn_context_response(
     }
 
     sess = mme_ue_session_from_gtp1_pdp_ctx(mme_ue, &gtp1_pdp_ctx);
-
-    rv = mme_gtp1_send_sgsn_context_ack(mme_ue, OGS_GTP1_CAUSE_REQUEST_ACCEPTED, xact);
-
-    mme_gtp_send_create_session_request(sess, OGS_GTP_CREATE_IN_TRACKING_AREA_UPDATE);
+    if (!sess) {
+        gtp1_cause = OGS_GTP1_CAUSE_SYSTEM_FAILURE;
+        goto nack_and_reject;
+    }
+    /* Store sess id to be able to retrieve it later on from xact: */
+    xact->data = OGS_UINT_TO_POINTER(sess->pti);
 
     return ret_cause;
 

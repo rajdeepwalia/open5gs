@@ -1,6 +1,7 @@
 /*
  * Copyright (C) 2022 by sysmocom - s.f.m.c. GmbH <info@sysmocom.de>
  * Copyright (C) 2023 by Sukchan Lee <acetcom@gmail.com>
+ * Copyright (C) 2025 by Juraj Elias <juraj.elias@gmail.com>
  *
  * This file is part of Open5GS.
  *
@@ -19,8 +20,30 @@
  */
 
 #include "ogs-metrics.h"
+#include "ogs-core.h"
+#include "metrics/ogs-metrics.h"
 
 #define DEFAULT_PROMETHEUS_HTTP_PORT       9090
+
+/* Global (optional) dumper. NULL when no NF registered. */
+size_t (*ogs_metrics_connected_ues_dumper)(char *buf, size_t buflen) = NULL;
+size_t (*ogs_metrics_connected_gnbs_dumper)(char *buf, size_t buflen) = NULL;
+size_t (*ogs_metrics_connected_enbs_dumper)(char *buf, size_t buflen) = NULL;
+
+void ogs_metrics_register_connected_ues(size_t (*fn)(char *buf, size_t buflen))
+{
+    ogs_metrics_connected_ues_dumper = fn;
+}
+
+void ogs_metrics_register_connected_gnbs(size_t (*fn)(char *buf, size_t buflen))
+{
+    ogs_metrics_connected_gnbs_dumper = fn;
+}
+
+void ogs_metrics_register_connected_enbs(size_t (*fn)(char *buf, size_t buflen))
+{
+    ogs_metrics_connected_enbs_dumper = fn;
+}
 
 int __ogs_metrics_domain;
 static ogs_metrics_context_t self;
@@ -77,6 +100,7 @@ int ogs_metrics_context_parse_config(const char *local)
     int rv;
     yaml_document_t *document = NULL;
     ogs_yaml_iter_t root_iter;
+    int idx = 0;
 
     document = ogs_app()->document;
     ogs_assert(document);
@@ -88,7 +112,8 @@ int ogs_metrics_context_parse_config(const char *local)
     while (ogs_yaml_iter_next(&root_iter)) {
         const char *root_key = ogs_yaml_iter_key(&root_iter);
         ogs_assert(root_key);
-        if (local && !strcmp(root_key, local)) {
+        if (local && !strcmp(root_key, local) &&
+            (idx++ == ogs_app()->config_section_id)) {
             ogs_yaml_iter_t local_iter;
             ogs_yaml_iter_recurse(&root_iter, &local_iter);
             while (ogs_yaml_iter_next(&local_iter)) {

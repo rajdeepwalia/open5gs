@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2023 by Sukchan Lee <acetcom@gmail.com>
+ * Copyright (C) 2019-2025 by Sukchan Lee <acetcom@gmail.com>
  *
  * This file is part of Open5GS.
  *
@@ -23,6 +23,8 @@
 #include "pfcp-path.h"
 #include "sbi-path.h"
 #include "metrics.h"
+#include "ogs-metrics.h"          /* for ogs_metrics_register_connected_ues */
+#include "connected_ues.h"        /* declare smf_dump_connected_ues() */
 
 static ogs_thread_t *thread;
 static void smf_main(void *data);
@@ -90,6 +92,8 @@ int smf_initialize(void)
     thread = ogs_thread_create(smf_main, NULL);
     if (!thread) return OGS_ERROR;
 
+    ogs_metrics_register_connected_ues(smf_dump_connected_ues);
+
     initialized = 1;
 
     return OGS_OK;
@@ -101,9 +105,12 @@ static void event_termination(void)
 {
     ogs_sbi_nf_instance_t *nf_instance = NULL;
 
-    /* Sending NF Instance De-registeration to NRF */
+    /* Sending NF Instance De-registration to NRF */
     ogs_list_for_each(&ogs_sbi_self()->nf_instance_list, nf_instance)
         ogs_sbi_nf_fsm_fini(nf_instance);
+
+    /* Gracefully shutdown the server by sending GOAWAY to each session. */
+    ogs_sbi_server_graceful_shutdown_all();
 
     /* Starting holding timer */
     t_termination_holding = ogs_timer_add(ogs_app()->timer_mgr, NULL, NULL);
@@ -159,7 +166,7 @@ static void smf_main(void *data)
         /*
          * After ogs_pollset_poll(), ogs_timer_mgr_expire() must be called.
          *
-         * The reason is why ogs_timer_mgr_next() can get the corrent value
+         * The reason is why ogs_timer_mgr_next() can get the current value
          * when ogs_timer_stop() is called internally in ogs_timer_mgr_expire().
          *
          * You should not use event-queue before ogs_timer_mgr_expire().

@@ -163,7 +163,8 @@ int sgwc_context_parse_config(void)
 sgwc_ue_t *sgwc_ue_add_by_message(ogs_gtp2_message_t *message)
 {
     sgwc_ue_t *sgwc_ue = NULL;
-    ogs_gtp2_create_session_request_t *req = &message->create_session_request;
+    /* Clang scan-build SA: Dead initialization: Don't set req before message is checked for NULL. */
+    ogs_gtp2_create_session_request_t *req;
 
     ogs_assert(message);
 
@@ -407,8 +408,6 @@ static ogs_pfcp_node_t *selected_sgwu_node(
 
 void sgwc_sess_select_sgwu(sgwc_sess_t *sess)
 {
-    char buf[OGS_ADDRSTRLEN];
-
     ogs_assert(sess);
 
     /*
@@ -424,8 +423,9 @@ void sgwc_sess_select_sgwu(sgwc_sess_t *sess)
         selected_sgwu_node(ogs_pfcp_self()->pfcp_node, sess);
     ogs_assert(ogs_pfcp_self()->pfcp_node);
     OGS_SETUP_PFCP_NODE(sess, ogs_pfcp_self()->pfcp_node);
-    ogs_debug("UE using SGW-U on IP[%s]",
-            OGS_ADDR(&ogs_pfcp_self()->pfcp_node->addr, buf));
+    ogs_debug("UE using SGW-U on IP %s",
+            ogs_sockaddr_to_string_static(
+                ogs_pfcp_self()->pfcp_node->addr_list));
 }
 
 int sgwc_sess_remove(sgwc_sess_t *sess)
@@ -557,20 +557,31 @@ sgwc_bearer_t *sgwc_bearer_add(sgwc_sess_t *sess)
     ogs_assert(sgwc_ue);
 
     ogs_pool_id_calloc(&sgwc_bearer_pool, &bearer);
-    ogs_assert(bearer);
+    if (!bearer) {
+        ogs_error("ogs_pool_id_calloc() failed");
+        return NULL;
+    }
+
+    ogs_list_add(&sess->bearer_list, bearer);
 
     bearer->sgwc_ue_id = sgwc_ue->id;
     bearer->sess_id = sess->id;
 
     /* Downlink */
     tunnel = sgwc_tunnel_add(bearer, OGS_GTP2_F_TEID_S5_S8_SGW_GTP_U);
-    ogs_assert(tunnel);
+    if (!tunnel) {
+        ogs_error("sgwc_tunnel_add() failed");
+        sgwc_bearer_remove(bearer);
+        return NULL;
+    }
 
     /* Uplink */
     tunnel = sgwc_tunnel_add(bearer, OGS_GTP2_F_TEID_S1_U_SGW_GTP_U);
-    ogs_assert(tunnel);
-
-    ogs_list_add(&sess->bearer_list, bearer);
+    if (!tunnel) {
+        ogs_error("sgwc_tunnel_add() failed");
+        sgwc_bearer_remove(bearer);
+        return NULL;
+    }
 
     return bearer;
 }
@@ -647,8 +658,12 @@ sgwc_tunnel_t *sgwc_tunnel_add(
     ogs_pfcp_pdr_t *pdr = NULL;
     ogs_pfcp_far_t *far = NULL;
 
-    uint8_t src_if = OGS_PFCP_INTERFACE_UNKNOWN;
-    uint8_t dst_if = OGS_PFCP_INTERFACE_UNKNOWN;
+    ogs_pfcp_interface_t src_if = OGS_PFCP_INTERFACE_UNKNOWN;
+    ogs_pfcp_interface_t dst_if = OGS_PFCP_INTERFACE_UNKNOWN;
+    ogs_pfcp_3gpp_interface_type_t src_if_type =
+        OGS_PFCP_3GPP_INTERFACE_TYPE_UNKNOWN;
+    ogs_pfcp_3gpp_interface_type_t dst_if_type =
+        OGS_PFCP_3GPP_INTERFACE_TYPE_UNKNOWN;
 
     ogs_assert(bearer);
     sess = sgwc_sess_find_by_id(bearer->sess_id);
@@ -658,20 +673,28 @@ sgwc_tunnel_t *sgwc_tunnel_add(
     /* Downlink */
     case OGS_GTP2_F_TEID_S5_S8_SGW_GTP_U:
         src_if = OGS_PFCP_INTERFACE_CORE;
+        src_if_type = OGS_PFCP_3GPP_INTERFACE_TYPE_S5_S8_U;
         dst_if = OGS_PFCP_INTERFACE_ACCESS;
+        dst_if_type = OGS_PFCP_3GPP_INTERFACE_TYPE_S1_U;
         break;
 
     /* Uplink */
     case OGS_GTP2_F_TEID_S1_U_SGW_GTP_U:
         src_if = OGS_PFCP_INTERFACE_ACCESS;
+        src_if_type = OGS_PFCP_3GPP_INTERFACE_TYPE_S1_U;
         dst_if = OGS_PFCP_INTERFACE_CORE;
+        dst_if_type = OGS_PFCP_3GPP_INTERFACE_TYPE_S5_S8_U;
         break;
 
     /* Indirect */
     case OGS_GTP2_F_TEID_SGW_GTP_U_FOR_DL_DATA_FORWARDING:
     case OGS_GTP2_F_TEID_SGW_GTP_U_FOR_UL_DATA_FORWARDING:
         src_if = OGS_PFCP_INTERFACE_ACCESS;
+        src_if_type =
+            OGS_PFCP_3GPP_INTERFACE_TYPE_SGW_UPF_GTP_U_FOR_UL_DATA_FORWARDING;
         dst_if = OGS_PFCP_INTERFACE_ACCESS;
+        dst_if_type =
+            OGS_PFCP_3GPP_INTERFACE_TYPE_SGW_UPF_GTP_U_FOR_DL_DATA_FORWARDING;
         break;
     default:
         ogs_fatal("Invalid interface type = %d", interface_type);
@@ -679,12 +702,23 @@ sgwc_tunnel_t *sgwc_tunnel_add(
     }
 
     ogs_pool_id_calloc(&sgwc_tunnel_pool, &tunnel);
-    ogs_assert(tunnel);
+    if (!tunnel) {
+        ogs_error("ogs_pool_id_calloc() failed");
+        return NULL;
+    }
+
+    ogs_list_add(&bearer->tunnel_list, tunnel);
 
     tunnel->interface_type = interface_type;
+    tunnel->bearer_id = bearer->id;
 
     pdr = ogs_pfcp_pdr_add(&sess->pfcp);
-    ogs_assert(pdr);
+    if (!pdr) {
+        ogs_error("ogs_pfcp_pdr_add() failed");
+        sgwc_tunnel_remove(tunnel);
+        return NULL;
+    }
+    tunnel->pdr = pdr;
 
     ogs_assert(sess->session.name);
     pdr->apn = ogs_strdup(sess->session.name);
@@ -692,14 +726,26 @@ sgwc_tunnel_t *sgwc_tunnel_add(
 
     pdr->src_if = src_if;
 
+    pdr->src_if_type_presence = true;
+    pdr->src_if_type = src_if_type;
+
     far = ogs_pfcp_far_add(&sess->pfcp);
-    ogs_assert(far);
+    if (!far) {
+        ogs_error("ogs_pfcp_far_add() failed");
+        sgwc_tunnel_remove(tunnel);
+        return NULL;
+    }
+    tunnel->far = far;
 
     ogs_assert(sess->session.name);
     far->apn = ogs_strdup(sess->session.name);
     ogs_assert(far->apn);
 
     far->dst_if = dst_if;
+
+    far->dst_if_type_presence = true;
+    far->dst_if_type = dst_if_type;
+
     ogs_pfcp_pdr_associate_far(pdr, far);
 
     far->apply_action =
@@ -741,14 +787,15 @@ sgwc_tunnel_t *sgwc_tunnel_add(
             else
                 tunnel->local_teid = pdr->teid;
         } else {
-            if (sess->pfcp_node->addr.ogs_sa_family == AF_INET)
+            ogs_assert(sess->pfcp_node->addr_list);
+            if (sess->pfcp_node->addr_list->ogs_sa_family == AF_INET)
                 ogs_assert(OGS_OK ==
                     ogs_copyaddrinfo(
-                        &tunnel->local_addr, &sess->pfcp_node->addr));
-            else if (sess->pfcp_node->addr.ogs_sa_family == AF_INET6)
+                        &tunnel->local_addr, sess->pfcp_node->addr_list));
+            else if (sess->pfcp_node->addr_list->ogs_sa_family == AF_INET6)
                 ogs_assert(OGS_OK ==
                     ogs_copyaddrinfo(
-                        &tunnel->local_addr6, &sess->pfcp_node->addr));
+                        &tunnel->local_addr6, sess->pfcp_node->addr_list));
             else
                 ogs_assert_if_reached();
 
@@ -761,13 +808,6 @@ sgwc_tunnel_t *sgwc_tunnel_add(
                 &pdr->f_teid, &pdr->f_teid_len));
         pdr->f_teid.teid = tunnel->local_teid;
     }
-
-    tunnel->pdr = pdr;
-    tunnel->far = far;
-
-    tunnel->bearer_id = bearer->id;
-
-    ogs_list_add(&bearer->tunnel_list, tunnel);
 
     return tunnel;
 }
@@ -782,8 +822,10 @@ int sgwc_tunnel_remove(sgwc_tunnel_t *tunnel)
 
     ogs_list_remove(&bearer->tunnel_list, tunnel);
 
-    ogs_pfcp_pdr_remove(tunnel->pdr);
-    ogs_pfcp_far_remove(tunnel->far);
+    if (tunnel->pdr)
+        ogs_pfcp_pdr_remove(tunnel->pdr);
+    if (tunnel->far)
+        ogs_pfcp_far_remove(tunnel->far);
 
     if (tunnel->local_addr)
         ogs_freeaddrinfo(tunnel->local_addr);
