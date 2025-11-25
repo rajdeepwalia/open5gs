@@ -23,9 +23,10 @@
  * Prometheus HTTP server (MicroHTTPD) with optional JSON endpoints:
  *   - /                (provide health check)
  *   - /metrics         (provide prometheus metrics metrics according to the relevant NF)
- *   - /connected-ues   (provided by NF registering ogs_metrics_connected_ues_dumper)
- *   - /connected-gnbs  (provided by NF registering ogs_metrics_connected_gnbs_dumper)
- *   - /connected-enbs  (provided by NF registering ogs_metrics_connected_enbs_dumper)
+ *   - /pdu-info        (provided by NF registering ogs_metrics_pdu_info_dumper)
+ *   - /gnb-info        (provided by NF registering ogs_metrics_gnb_info_dumper)
+ *   - /enb-info        (provided by NF registering ogs_metrics_enb_info_dumper)
+ *   - /ue-info         (provided by NF registering ogs_metrics_ue_info_dumper)
  */
 
 #include "ogs-core.h"
@@ -35,6 +36,7 @@
 #include "prom.h"
 #include "microhttpd.h"
 #include <string.h>
+
 
 extern int __ogs_metrics_domain;
 #define MAX_LABELS 8
@@ -74,6 +76,17 @@ static OGS_POOL(metrics_server_pool, ogs_metrics_server_t);
 /* Forward decls */
 static int ogs_metrics_context_server_start(ogs_metrics_server_t *server);
 static int ogs_metrics_context_server_stop(ogs_metrics_server_t *server);
+
+static size_t get_query_size_t(struct MHD_Connection *connection,
+                               const char *key, size_t default_val)
+{
+    const char *val = MHD_lookup_connection_value(connection, MHD_GET_ARGUMENT_KIND, key);
+    if (!val || !*val) return default_val;
+    char *end = NULL;
+    unsigned long long v = strtoull(val, &end, 10);
+    if (end == val || *end != '\0') return default_val;
+    return (size_t)v;
+}
 
 void ogs_metrics_server_init(ogs_metrics_context_t *ctx)
 {
@@ -181,17 +194,11 @@ typedef int _MHD_Result;
 
 /* Small helper to serve JSON from a registered dumper */
 static _MHD_Result serve_json_from_dumper(struct MHD_Connection *connection,
-                                          size_t (*dumper)(char*, size_t),
-                                          const char *missing_msg)
+                                          ogs_metrics_custom_ep_hdlr_t handler,
+                                          size_t page, size_t page_size)
 {
-    if (!dumper) {
-        struct MHD_Response *rsp = MHD_create_response_from_buffer(strlen(missing_msg),
-                                (void*)missing_msg, MHD_RESPMEM_PERSISTENT);
-        if (!rsp) return (_MHD_Result)MHD_NO;
-        int ret = MHD_queue_response(connection, MHD_HTTP_NOT_FOUND, rsp);
-        MHD_destroy_response(rsp);
-        return (_MHD_Result)ret;
-    }
+    ogs_assert(connection);
+    ogs_assert(handler);
 
     size_t cap = 512 * 1024;
     char *bufjson = (char *)ogs_malloc(cap);
@@ -205,7 +212,7 @@ static _MHD_Result serve_json_from_dumper(struct MHD_Connection *connection,
         return (_MHD_Result)ret;
     }
 
-    size_t n = dumper(bufjson, cap);
+    size_t n = handler(bufjson, cap, page, page_size);
     if (n >= cap - 1) {
         /* grow once */
         size_t newcap = cap * 2;
@@ -221,7 +228,7 @@ static _MHD_Result serve_json_from_dumper(struct MHD_Connection *connection,
             return (_MHD_Result)ret;
         }
         bufjson = tmp; cap = newcap;
-        n = dumper(bufjson, cap);
+        n = handler(bufjson, cap, page, page_size);
         if (n >= cap - 1) {
             /* graceful fallback */
             n = ogs_snprintf(bufjson, cap, "[]");
@@ -288,25 +295,20 @@ mhd_server_access_handler(void *cls, struct MHD_Connection *connection,
         MHD_add_response_header(rsp, "Content-Type", "text/plain; version=0.0.4; charset=utf-8");
         ret = MHD_queue_response(connection, MHD_HTTP_OK, rsp);
         MHD_destroy_response(rsp);
+        prom_free((void *)buf);
         return (_MHD_Result)ret;
     }
 
-    /* JSON: connected UEs (SMF/MME/etc.) */
-    if (strcmp(url, "/connected-ues") == 0) {
-        return serve_json_from_dumper(connection, ogs_metrics_connected_ues_dumper,
-                                      "connected-ues endpoint not available on this NF\n");
-    }
+    size_t page = get_query_size_t(connection, "page", 0);
+    size_t page_size = get_query_size_t(connection, "page_size", 100);
 
-    /* JSON: connected gNBs (AMF) */
-    if (strcmp(url, "/connected-gnbs") == 0) {
-        return serve_json_from_dumper(connection, ogs_metrics_connected_gnbs_dumper,
-                                      "connected-gnbs endpoint not available on this NF\n");
-    }
-
-    /* JSON: connected eNBs (MME) */
-    if (strcmp(url, "/connected-enbs") == 0) {
-        return serve_json_from_dumper(connection, ogs_metrics_connected_enbs_dumper,
-                                      "connected-enbs endpoint not available on this NF\n");
+    ogs_metrics_custom_ep_t *node = NULL;
+    ogs_list_for_each(&ogs_metrics_self()->custom_eps, node) {
+        if (!strcmp(node->endpoint, url)) {
+            return serve_json_from_dumper(connection,
+                    node->handler,
+                    page, page_size);
+        }
     }
 
     /* No matching route */

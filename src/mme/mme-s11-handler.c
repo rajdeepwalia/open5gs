@@ -828,7 +828,7 @@ void mme_s11_handle_delete_session_response(
     } else if (action == OGS_GTP_DELETE_SEND_RELEASE_WITH_UE_CONTEXT_REMOVE) {
         if (mme_sess_count(mme_ue) == 1) /* Last Session */ {
             if (ECM_IDLE(mme_ue)) {
-                mme_ue_remove(mme_ue);
+                MME_UE_REMOVE_WITH_PAGING_FAIL(mme_ue);
 
                 /* mme_sess_remove() should not be called here
                  * since mme_ue_remove() has already been executed. */
@@ -875,6 +875,20 @@ void mme_s11_handle_delete_session_response(
 
             sgw_ue_source_deassociate_target(source_ue);
             sgw_ue_remove(source_ue);
+
+        );
+
+        return;
+
+    } else if (action == OGS_GTP_DELETE_SEND_TAU_ACCEPT) {
+
+        MME_SESS_CLEAR(sess);
+
+        GTP_COUNTER_CHECK(mme_ue, GTP_COUNTER_DELETE_SESSION_BY_TAU,
+
+            ogs_info("[%s] Send TAU accept(BCS match, active_flag=%d)",
+                     mme_ue->imsi_bcd, mme_ue->nas_eps.update.active_flag);
+            mme_send_tau_accept_and_check_release(enb_ue, mme_ue);
 
         );
 

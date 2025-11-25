@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2022 by sysmocom - s.f.m.c. GmbH <info@sysmocom.de>
+ * Copyright (C) 2025 by Juraj Elias <juraj.elias@gmail.com>
  *
  * This file is part of Open5GS.
  *
@@ -16,37 +16,27 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
+/*
+ * /enb-info — MME-side JSON exporter (Prometheus HTTP endpoint)
+ *
+ * License: AGPLv3+
+ */
+#pragma once
 
-#ifndef OGS_METRICS_H
-#define OGS_METRICS_H
-
-/* MUST come first to satisfy core headers like ogs-list.h */
-#include "core/ogs-core.h"
-
-/* App layer (logging domain, etc.) */
-#include "app/ogs-app.h"
-
-/* Expose internal metrics structures to metrics library users */
-#define OGS_METRICS_INSIDE
-#include "metrics/context.h"
-#undef OGS_METRICS_INSIDE
-
+#include <stddef.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
+#ifndef ENB_INFO_PAGE_SIZE_DEFAULT
+#define ENB_INFO_PAGE_SIZE_DEFAULT 100U
+#endif
+
+size_t mme_dump_enb_info(char *buf, size_t buflen, size_t page, size_t page_size);
+size_t mme_dump_enb_info_paged(char *buf, size_t buflen, size_t page, size_t page_size);
 
 #ifdef __cplusplus
 }
 #endif
-
-#undef OGS_LOG_DOMAIN
-#define OGS_LOG_DOMAIN __ogs_metrics_domain
-
-#ifdef __cplusplus
-} /* extern "C" */
-#endif
-
-#endif /* OGS_METRICS_H */
 

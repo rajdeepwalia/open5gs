@@ -18,10 +18,10 @@
  */
 
 /*
- * /connected-gnbs — AMF-side JSON exporter (Prometheus HTTP endpoint)
- *
+ * Minimal public API for /pdu-info
  */
-#pragma once
+#ifndef SMF_PDU_INFO_H
+#define SMF_PDU_INFO_H
 
 #include <stddef.h>
 
@@ -29,12 +29,17 @@
 extern "C" {
 #endif
 
-/* JSON dumper for /connected-gnbs.
- * Returns number of bytes written (<= buflen-1), buffer is always NUL-terminated.
- */
-size_t amf_dump_connected_gnbs(char *buf, size_t buflen);
 
+#ifndef PDU_INFO_PAGE_SIZE_DEFAULT
+#define PDU_INFO_PAGE_SIZE_DEFAULT 100U
+#endif
+
+size_t smf_dump_pdu_info(char *buf, size_t buflen,
+        size_t page, size_t page_size);
+size_t smf_dump_pdu_info_paged(char *buf, size_t buflen,
+        size_t page, size_t page_size);
 #ifdef __cplusplus
 }
 #endif
 
+#endif 
