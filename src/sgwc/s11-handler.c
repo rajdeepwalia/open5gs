@@ -428,6 +428,7 @@ void sgwc_s11_handle_modify_bearer_request(
     sgwc_sess_t *sess = NULL;
     sgwc_bearer_t *bearer = NULL;
     sgwc_tunnel_t *dl_tunnel = NULL;
+    ogs_pfcp_pdr_t *pdr = NULL;
     ogs_pfcp_far_t *far = NULL;
     ogs_ip_t remote_ip;
     ogs_ip_t zero_ip;
@@ -515,8 +516,10 @@ void sgwc_s11_handle_modify_bearer_request(
             ogs_assert(current_xact);
 
             current_xact->assoc_xact_id = s11_xact->id;
-            current_xact->modify_flags = OGS_PFCP_MODIFY_SESSION|
-                OGS_PFCP_MODIFY_DL_ONLY|OGS_PFCP_MODIFY_ACTIVATE;
+            current_xact->modify_flags =
+                OGS_PFCP_MODIFY_SESSION|OGS_PFCP_MODIFY_DL_ONLY|
+                OGS_PFCP_MODIFY_OUTER_HEADER_REMOVAL|
+                OGS_PFCP_MODIFY_ACTIVATE;
             if (gtpbuf) {
                 current_xact->gtpbuf = ogs_pkbuf_copy(gtpbuf);
                 ogs_assert(current_xact->gtpbuf);
@@ -552,6 +555,13 @@ void sgwc_s11_handle_modify_bearer_request(
         }
 
         memcpy(&dl_tunnel->remote_ip, &remote_ip, sizeof(ogs_ip_t));
+
+        pdr = dl_tunnel->pdr;
+        ogs_assert(pdr);
+
+        pdr->outer_header_removal_len = 1;
+        pdr->outer_header_removal.description =
+            OGS_PFCP_OUTER_HEADER_REMOVAL_GTPU_UDP_IP;
 
         far = dl_tunnel->far;
         ogs_assert(far);
@@ -745,6 +755,7 @@ void sgwc_s11_handle_create_bearer_response(
     sgwc_bearer_t *bearer = NULL;
     ogs_pool_id_t bearer_id = OGS_INVALID_POOL_ID;
     sgwc_tunnel_t *dl_tunnel = NULL, *ul_tunnel = NULL;
+    ogs_pfcp_pdr_t *pdr = NULL;
     ogs_pfcp_far_t *far = NULL;
 
     ogs_gtp_xact_t *s5c_xact = NULL;
@@ -911,6 +922,13 @@ void sgwc_s11_handle_create_bearer_response(
 
     ogs_assert(OGS_OK ==
             ogs_gtp2_f_teid_to_ip(enb_s1u_teid, &dl_tunnel->remote_ip));
+
+    pdr = dl_tunnel->pdr;
+    ogs_assert(pdr);
+
+    pdr->outer_header_removal_len = 1;
+    pdr->outer_header_removal.description =
+        OGS_PFCP_OUTER_HEADER_REMOVAL_GTPU_UDP_IP;
 
     far = dl_tunnel->far;
     ogs_assert(far);
@@ -1341,6 +1359,7 @@ void sgwc_s11_handle_create_indirect_data_forwarding_tunnel_request(
     sgwc_sess_t *sess = NULL;
     sgwc_bearer_t *bearer = NULL;
     sgwc_tunnel_t *tunnel = NULL;
+    ogs_pfcp_pdr_t *pdr = NULL;
     ogs_pfcp_far_t *far = NULL;
 
     ogs_gtp2_create_indirect_data_forwarding_tunnel_request_t *req = NULL;
@@ -1393,6 +1412,8 @@ void sgwc_s11_handle_create_indirect_data_forwarding_tunnel_request(
         bearer = sgwc_bearer_find_by_ue_ebi(sgwc_ue,
                     req->bearer_contexts[i].eps_bearer_id.u8);
         ogs_assert(bearer);
+        sess = sgwc_sess_find_by_id(bearer->sess_id);
+        ogs_assert(sess);
 
         if (req->bearer_contexts[i].s1_u_enodeb_f_teid.presence) {
             req_teid = req->bearer_contexts[i].s1_u_enodeb_f_teid.data;
@@ -1400,7 +1421,14 @@ void sgwc_s11_handle_create_indirect_data_forwarding_tunnel_request(
 
             tunnel = sgwc_tunnel_add(bearer,
                     OGS_GTP2_F_TEID_SGW_GTP_U_FOR_DL_DATA_FORWARDING);
-            ogs_assert(tunnel);
+            if (!tunnel) {
+                ogs_error("sgwc_tunnel_add() failed");
+                ogs_gtp_send_error_message(
+                    s11_xact, sgwc_ue ? sgwc_ue->mme_s11_teid : 0,
+                    OGS_GTP2_CREATE_INDIRECT_DATA_FORWARDING_TUNNEL_RESPONSE_TYPE,
+                    OGS_GTP2_CAUSE_SYSTEM_FAILURE);
+                return;
+            }
 
             tunnel->remote_teid = be32toh(req_teid->teid);
 
@@ -1412,6 +1440,13 @@ void sgwc_s11_handle_create_indirect_data_forwarding_tunnel_request(
                 OGS_GTP2_CAUSE_MANDATORY_IE_MISSING);
                 return;
             }
+
+            pdr = tunnel->pdr;
+            ogs_assert(pdr);
+
+            pdr->outer_header_removal_len = 1;
+            pdr->outer_header_removal.description =
+                OGS_PFCP_OUTER_HEADER_REMOVAL_GTPU_UDP_IP;
 
             far = tunnel->far;
             ogs_assert(far);
@@ -1435,7 +1470,14 @@ void sgwc_s11_handle_create_indirect_data_forwarding_tunnel_request(
 
             tunnel = sgwc_tunnel_add(bearer,
                     OGS_GTP2_F_TEID_SGW_GTP_U_FOR_UL_DATA_FORWARDING);
-            ogs_assert(tunnel);
+            if (!tunnel) {
+                ogs_error("sgwc_tunnel_add() failed");
+                ogs_gtp_send_error_message(
+                    s11_xact, sgwc_ue ? sgwc_ue->mme_s11_teid : 0,
+                    OGS_GTP2_CREATE_INDIRECT_DATA_FORWARDING_TUNNEL_RESPONSE_TYPE,
+                    OGS_GTP2_CAUSE_SYSTEM_FAILURE);
+                return;
+            }
 
             tunnel->remote_teid = be32toh(req_teid->teid);
 
@@ -1447,6 +1489,13 @@ void sgwc_s11_handle_create_indirect_data_forwarding_tunnel_request(
                 OGS_GTP2_CAUSE_MANDATORY_IE_MISSING);
                 return;
             }
+
+            pdr = tunnel->pdr;
+            ogs_assert(pdr);
+
+            pdr->outer_header_removal_len = 1;
+            pdr->outer_header_removal.description =
+                OGS_PFCP_OUTER_HEADER_REMOVAL_GTPU_UDP_IP;
 
             far = tunnel->far;
             ogs_assert(far);

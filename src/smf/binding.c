@@ -21,6 +21,7 @@
 #include "s5c-build.h"
 #include "pfcp-path.h"
 #include "gtp-path.h"
+#include "sbi-path.h"
 
 #include "ipfw/ipfw2.h"
 
@@ -206,15 +207,17 @@ void smf_bearer_binding(smf_sess_t *sess)
                         else
                             bearer->pgw_s5u_teid = ul_pdr->teid;
                     } else {
-                        if (sess->pfcp_node->addr.ogs_sa_family == AF_INET)
+                        ogs_assert(sess->pfcp_node->addr_list);
+                        if (sess->pfcp_node->addr_list->ogs_sa_family ==
+                                AF_INET)
                             ogs_assert(OGS_OK ==
                                 ogs_copyaddrinfo(&bearer->pgw_s5u_addr,
-                                    &sess->pfcp_node->addr));
-                        else if (sess->pfcp_node->addr.ogs_sa_family ==
+                                    sess->pfcp_node->addr_list));
+                        else if (sess->pfcp_node->addr_list->ogs_sa_family ==
                                 AF_INET6)
                             ogs_assert(OGS_OK ==
                                 ogs_copyaddrinfo(&bearer->pgw_s5u_addr6,
-                                    &sess->pfcp_node->addr));
+                                    sess->pfcp_node->addr_list));
                         else
                             ogs_assert_if_reached();
 
@@ -587,9 +590,9 @@ void smf_qos_flow_binding(smf_sess_t *sess)
                 } else {
                     ogs_assert(OGS_OK ==
                         ogs_pfcp_sockaddr_to_f_teid(
-                            sess->upf_n3_addr, sess->upf_n3_addr6,
+                            sess->local_ul_addr, sess->local_ul_addr6,
                             &ul_pdr->f_teid, &ul_pdr->f_teid_len));
-                    ul_pdr->f_teid.teid = sess->upf_n3_teid;
+                    ul_pdr->f_teid.teid = sess->local_ul_teid;
                 }
 
                 qos_flow->pcc_rule.id = ogs_strdup(pcc_rule->id);
@@ -602,22 +605,38 @@ void smf_qos_flow_binding(smf_sess_t *sess)
             } else {
                 ogs_assert(strcmp(qos_flow->pcc_rule.id, pcc_rule->id) == 0);
 
-                // if ((pcc_rule->qos.mbr.downlink &&
-                //     qos_flow->qos.mbr.downlink != pcc_rule->qos.mbr.downlink) ||
-                //     (pcc_rule->qos.mbr.uplink &&
-                //      qos_flow->qos.mbr.uplink != pcc_rule->qos.mbr.uplink) ||
-                //     (pcc_rule->qos.gbr.downlink &&
-                //     qos_flow->qos.gbr.downlink != pcc_rule->qos.gbr.downlink) ||
-                //     (pcc_rule->qos.gbr.uplink &&
-                //     qos_flow->qos.gbr.uplink != pcc_rule->qos.gbr.uplink)) {
-                //     /* Update QoS parameter */
-                //     memcpy(&qos_flow->qos, &pcc_rule->qos, sizeof(ogs_qos_t));
+                /*
+                 * Check if any MBR/GBR value is non-zero. This indicates that
+                 * the flow might require GBR/MBR-specific handling.
+                 */
+                if (pcc_rule->qos.mbr.downlink || pcc_rule->qos.mbr.uplink ||
+                    pcc_rule->qos.gbr.downlink || pcc_rule->qos.gbr.uplink) {
 
-                //     /* Update Bearer Request encodes updated QoS parameter */
-                //     qos_presence = true;
-                // }
-                ogs_info("========= Setting qos_presence to true");
-                qos_presence = true;
+                    /*
+                     * If new packet filters are being added, or if any MBR/GBR
+                     * field differs from what is currently set, then we must
+                     * update the QoS parameters.
+                     */
+                    if ((ogs_list_count(&qos_flow->pf_to_add_list) > 0) ||
+                        (qos_flow->qos.mbr.downlink != pcc_rule->qos.mbr.downlink) ||
+                        (qos_flow->qos.mbr.uplink != pcc_rule->qos.mbr.uplink) ||
+                        (qos_flow->qos.gbr.downlink != pcc_rule->qos.gbr.downlink) ||
+                        (qos_flow->qos.gbr.uplink != pcc_rule->qos.gbr.uplink)) {
+
+                        /*
+                         * Update the QoS parameters so that the GBR QoS Flow
+                         * Information IE is properly encoded in the upcoming
+                         * signaling (NGAP/PFCP) messages.
+                         */
+                        memcpy(&qos_flow->qos, &pcc_rule->qos, sizeof(ogs_qos_t));
+
+                        /*
+                         * Setting 'qos_presence' to true triggers encoding of
+                         * the QoS IE in the subsequent Bearer Request message.
+                         */
+                        qos_presence = true;
+                    }
+                }
             }
 
         /*
@@ -772,6 +791,9 @@ void smf_qos_flow_binding(smf_sess_t *sess)
         ogs_info("========= qos flow modify list not null");
         ogs_assert(OGS_OK ==
                 smf_5gc_pfcp_send_qos_flow_list_modification_request(
-                    sess, NULL, pfcp_flags, 0));
+                    sess, NULL,
+                    HOME_ROUTED_ROAMING_IN_HSMF(sess) ?
+                        OGS_PFCP_MODIFY_HOME_ROUTED_ROAMING|pfcp_flags :
+                        pfcp_flags, 0));
     }
 }

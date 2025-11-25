@@ -228,6 +228,12 @@ int amf_nudm_sdm_handle_provisioned(
                                                 DnnInfo->default_dnn_indicator;
                                         }
                                         slice->num_of_session++;
+
+                                        if (DnnInfo->is_lbo_roaming_allowed ==
+                                                true) {
+                                            session->lbo_roaming_allowed =
+                                                DnnInfo->lbo_roaming_allowed;
+                                        }
                                     }
                                 }
                             }
@@ -352,7 +358,7 @@ int amf_nudm_sdm_handle_provisioned(
             }
         }
 
-        OGS_SBI_SETUP_CLIENT(&amf_ue->policy_association, client);
+        OGS_SBI_SETUP_CLIENT(&amf_ue->data_change_subscription, client);
 
         ogs_free(fqdn);
         ogs_freeaddrinfo(addr);

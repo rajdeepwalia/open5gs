@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019 by Sukchan Lee <acetcom@gmail.com>
+ * Copyright (C) 2019-2024 by Sukchan Lee <acetcom@gmail.com>
  *
  * This file is part of Open5GS.
  *
@@ -122,14 +122,22 @@ static void timeout(ogs_gtp_xact_t *xact, void *data)
         ogs_assert(mme_ue_id >= OGS_MIN_POOL_ID &&
                 mme_ue_id <= OGS_MAX_POOL_ID);
         mme_ue = mme_ue_find_by_id(mme_ue_id);
-        ogs_assert(mme_ue);
+        if (!mme_ue) {
+            ogs_error("MME-UE[%d] has already been removed [%d]",
+                    mme_ue_id, type);
+            return;
+        }
         break;
     case OGS_GTP2_CREATE_SESSION_REQUEST_TYPE:
     case OGS_GTP2_DELETE_SESSION_REQUEST_TYPE:
         sess_id = OGS_POINTER_TO_UINT(data);
         ogs_assert(sess_id >= OGS_MIN_POOL_ID && sess_id <= OGS_MAX_POOL_ID);
         sess = mme_sess_find_by_id(sess_id);
-        ogs_assert(sess);
+        if (!sess) {
+            ogs_error("Session[%d] has already been removed [%d]",
+                    sess_id, type);
+            return;
+        }
         mme_ue = mme_ue_find_by_id(sess->mme_ue_id);
         ogs_assert(mme_ue);
         break;
@@ -138,7 +146,11 @@ static void timeout(ogs_gtp_xact_t *xact, void *data)
         ogs_assert(bearer_id >= OGS_MIN_POOL_ID &&
                 bearer_id <= OGS_MAX_POOL_ID);
         bearer = mme_bearer_find_by_id(bearer_id);
-        ogs_assert(bearer);
+        if (!bearer) {
+            ogs_error("Bearer[%d] has already been removed [%d]",
+                    bearer_id, type);
+            return;
+        }
         sess = mme_sess_find_by_id(bearer->sess_id);
         ogs_assert(sess);
         mme_ue = mme_ue_find_by_id(sess->mme_ue_id);
@@ -151,6 +163,7 @@ static void timeout(ogs_gtp_xact_t *xact, void *data)
     }
 
     ogs_assert(mme_ue);
+    enb_ue = enb_ue_find_by_id(mme_ue->enb_ue_id);
 
     switch (type) {
     case OGS_GTP2_DELETE_SESSION_REQUEST_TYPE:
@@ -165,7 +178,6 @@ static void timeout(ogs_gtp_xact_t *xact, void *data)
          */
         CLEAR_SESSION_CONTEXT(mme_ue);
 
-        enb_ue = enb_ue_find_by_id(mme_ue->enb_ue_id);
         if (enb_ue) {
             r = s1ap_send_ue_context_release_command(enb_ue,
                     S1AP_Cause_PR_nas, S1AP_CauseNas_normal_release,
@@ -180,7 +192,10 @@ static void timeout(ogs_gtp_xact_t *xact, void *data)
         /* Nothing to do */
         break;
     default:
-        mme_send_delete_session_or_mme_ue_context_release(mme_ue);
+        if (enb_ue)
+            mme_send_delete_session_or_mme_ue_context_release(enb_ue, mme_ue);
+        else
+            ogs_error("No S1 Context");
         break;
     }
 
@@ -246,7 +261,8 @@ void mme_gtp_close(void)
     ogs_socknode_remove_all(&ogs_gtp_self()->gtpc_list6);
 }
 
-int mme_gtp_send_create_session_request(mme_sess_t *sess, int create_action)
+int mme_gtp_send_create_session_request(
+        enb_ue_t *enb_ue, mme_sess_t *sess, int create_action)
 {
     int rv;
     ogs_gtp2_header_t h;
@@ -255,6 +271,7 @@ int mme_gtp_send_create_session_request(mme_sess_t *sess, int create_action)
     mme_ue_t *mme_ue = NULL;
     sgw_ue_t *sgw_ue = NULL;
 
+    ogs_assert(enb_ue);
     mme_ue = mme_ue_find_by_id(sess->mme_ue_id);
     ogs_assert(mme_ue);
     sgw_ue = sgw_ue_find_by_id(mme_ue->sgw_ue_id);
@@ -284,6 +301,7 @@ int mme_gtp_send_create_session_request(mme_sess_t *sess, int create_action)
     }
     xact->create_action = create_action;
     xact->local_teid = mme_ue->gn.mme_gn_teid;
+    xact->enb_ue_id = enb_ue->id;
 
     rv = ogs_gtp_xact_commit(xact);
     ogs_expect(rv == OGS_OK);
@@ -292,7 +310,8 @@ int mme_gtp_send_create_session_request(mme_sess_t *sess, int create_action)
 }
 
 int mme_gtp_send_modify_bearer_request(
-        mme_ue_t *mme_ue, int uli_presence, int modify_action)
+        enb_ue_t *enb_ue, mme_ue_t *mme_ue,
+        int uli_presence, int modify_action)
 {
     int rv;
 
@@ -302,6 +321,7 @@ int mme_gtp_send_modify_bearer_request(
     ogs_gtp2_header_t h;
     ogs_pkbuf_t *pkbuf = NULL;
 
+    ogs_assert(enb_ue);
     ogs_assert(mme_ue);
     sgw_ue = sgw_ue_find_by_id(mme_ue->sgw_ue_id);
     ogs_assert(sgw_ue);
@@ -325,6 +345,7 @@ int mme_gtp_send_modify_bearer_request(
     }
     xact->modify_action = modify_action;
     xact->local_teid = mme_ue->gn.mme_gn_teid;
+    xact->enb_ue_id = enb_ue->id;
 
     rv = ogs_gtp_xact_commit(xact);
     ogs_expect(rv == OGS_OK);
@@ -333,7 +354,7 @@ int mme_gtp_send_modify_bearer_request(
 }
 
 int mme_gtp_send_delete_session_request(
-        sgw_ue_t *sgw_ue, mme_sess_t *sess, int action)
+        enb_ue_t *enb_ue, sgw_ue_t *sgw_ue, mme_sess_t *sess, int action)
 {
     int rv;
     ogs_pkbuf_t *s11buf = NULL;
@@ -341,6 +362,7 @@ int mme_gtp_send_delete_session_request(
     ogs_gtp_xact_t *xact = NULL;
     mme_ue_t *mme_ue = NULL;
 
+    ogs_assert(enb_ue);
     ogs_assert(action);
     ogs_assert(sess);
     mme_ue = mme_ue_find_by_id(sess->mme_ue_id);
@@ -366,6 +388,7 @@ int mme_gtp_send_delete_session_request(
     }
     xact->delete_action = action;
     xact->local_teid = mme_ue->gn.mme_gn_teid;
+    xact->enb_ue_id = enb_ue->id;
     ogs_debug("delete_session_request - xact:%p, sess:%p", xact, sess);
 
     rv = ogs_gtp_xact_commit(xact);
@@ -374,11 +397,13 @@ int mme_gtp_send_delete_session_request(
     return rv;
 }
 
-void mme_gtp_send_delete_all_sessions(mme_ue_t *mme_ue, int action)
+void mme_gtp_send_delete_all_sessions(
+        enb_ue_t *enb_ue, mme_ue_t *mme_ue, int action)
 {
     mme_sess_t *sess = NULL, *next_sess = NULL;
     sgw_ue_t *sgw_ue = NULL;
 
+    ogs_assert(enb_ue);
     ogs_assert(mme_ue);
     sgw_ue = sgw_ue_find_by_id(mme_ue->sgw_ue_id);
     ogs_assert(sgw_ue);
@@ -386,7 +411,7 @@ void mme_gtp_send_delete_all_sessions(mme_ue_t *mme_ue, int action)
 
     ogs_list_for_each_safe(&mme_ue->sess_list, next_sess, sess) {
         if (MME_HAVE_SGW_S1U_PATH(sess)) {
-            mme_gtp_send_delete_session_request(sgw_ue, sess, action);
+            mme_gtp_send_delete_session_request(enb_ue, sgw_ue, sess, action);
         } else {
             MME_SESS_CLEAR(sess);
         }
@@ -561,7 +586,8 @@ int mme_gtp_send_delete_bearer_response(
     return rv;
 }
 
-int mme_gtp_send_release_access_bearers_request(mme_ue_t *mme_ue, int action)
+int mme_gtp_send_release_access_bearers_request(
+        enb_ue_t *enb_ue, mme_ue_t *mme_ue, int action)
 {
     int rv;
     ogs_gtp2_header_t h;
@@ -569,6 +595,7 @@ int mme_gtp_send_release_access_bearers_request(mme_ue_t *mme_ue, int action)
     ogs_gtp_xact_t *xact = NULL;
     sgw_ue_t *sgw_ue = NULL;
 
+    ogs_assert(enb_ue);
     ogs_assert(action);
     ogs_assert(mme_ue);
     sgw_ue = sgw_ue_find_by_id(mme_ue->sgw_ue_id);
@@ -593,6 +620,7 @@ int mme_gtp_send_release_access_bearers_request(mme_ue_t *mme_ue, int action)
     }
     xact->release_action = action;
     xact->local_teid = mme_ue->gn.mme_gn_teid;
+    xact->enb_ue_id = enb_ue->id;
 
     rv = ogs_gtp_xact_commit(xact);
     ogs_expect(rv == OGS_OK);
@@ -628,12 +656,13 @@ void mme_gtp_send_release_all_ue_in_enb(mme_enb_t *enb, int action)
                  * Execute enb_ue_unlink(mme_ue) and enb_ue_remove(enb_ue)
                  * before mme_gtp_send_release_access_bearers_request()
                  */
-                enb_ue_unlink(mme_ue);
+                enb_ue_deassociate_mme_ue(enb_ue, mme_ue);
                 enb_ue_remove(enb_ue);
             }
 
             ogs_assert(OGS_OK ==
-                mme_gtp_send_release_access_bearers_request(mme_ue, action));
+                mme_gtp_send_release_access_bearers_request(
+                    enb_ue, mme_ue, action));
         } else {
             ogs_warn("mme_gtp_send_release_all_ue_in_enb()");
             ogs_warn("    ENB_UE_S1AP_ID[%d] MME_UE_S1AP_ID[%d] Action[%d]",
@@ -699,7 +728,7 @@ int mme_gtp_send_downlink_data_notification_ack(
 }
 
 int mme_gtp_send_create_indirect_data_forwarding_tunnel_request(
-        mme_ue_t *mme_ue)
+        enb_ue_t *enb_ue, mme_ue_t *mme_ue)
 {
     int rv;
     ogs_gtp2_header_t h;
@@ -707,6 +736,7 @@ int mme_gtp_send_create_indirect_data_forwarding_tunnel_request(
     ogs_gtp_xact_t *xact = NULL;
     sgw_ue_t *sgw_ue = NULL;
 
+    ogs_assert(enb_ue);
     ogs_assert(mme_ue);
     sgw_ue = sgw_ue_find_by_id(mme_ue->sgw_ue_id);
     ogs_assert(sgw_ue);
@@ -731,6 +761,7 @@ int mme_gtp_send_create_indirect_data_forwarding_tunnel_request(
         return OGS_ERROR;
     }
     xact->local_teid = mme_ue->gn.mme_gn_teid;
+    xact->enb_ue_id = enb_ue->id;
 
     rv = ogs_gtp_xact_commit(xact);
     ogs_expect(rv == OGS_OK);
@@ -739,7 +770,7 @@ int mme_gtp_send_create_indirect_data_forwarding_tunnel_request(
 }
 
 int mme_gtp_send_delete_indirect_data_forwarding_tunnel_request(
-        mme_ue_t *mme_ue, int action)
+        enb_ue_t *enb_ue, mme_ue_t *mme_ue, int action)
 {
     int rv;
     ogs_gtp2_header_t h;
@@ -747,6 +778,7 @@ int mme_gtp_send_delete_indirect_data_forwarding_tunnel_request(
     ogs_gtp_xact_t *xact = NULL;
     sgw_ue_t *sgw_ue = NULL;
 
+    ogs_assert(enb_ue);
     ogs_assert(action);
     ogs_assert(mme_ue);
     sgw_ue = sgw_ue_find_by_id(mme_ue->sgw_ue_id);
@@ -772,6 +804,7 @@ int mme_gtp_send_delete_indirect_data_forwarding_tunnel_request(
     }
     xact->delete_indirect_action = action;
     xact->local_teid = mme_ue->gn.mme_gn_teid;
+    xact->enb_ue_id = enb_ue->id;
 
     rv = ogs_gtp_xact_commit(xact);
     ogs_expect(rv == OGS_OK);

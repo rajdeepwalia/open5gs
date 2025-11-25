@@ -20,7 +20,7 @@ head_inline: "<style> ul { padding-bottom: 1em; } </style>"
 
 - In the lab
   - [A Demonstration of 30 Gbps Load Testing for Accelerated UPF with Open5gs](https://nextepc.com/technology)
-  - [Measurement of UPF Performance](https://github.com/s5uishida/simple_measurement_of_upf_performance)
+  - [Measurement of UPF Performance](https://github.com/s5uishida/sample_config_misc_for_mobile_network#performance_measurement)
 
 - Troubleshooting
   - [Simple Issues](troubleshoot/01-simple-issues)
@@ -43,12 +43,14 @@ head_inline: "<style> ul { padding-bottom: 1em; } </style>"
   - [SMF Code Explanation](https://medium.com/@aditya.koranga/open5gs-smf-code-explanation-with-flow-charts-a3b3cd38c991)
 
 - @infinitydon
+  - [OAI's O-RAN Integration With Open5gs 5G Core](https://futuredon.medium.com/integrating-disaggregated-openairinterface-o-ran-components-with-open5gs-5g-core-76e5deac1730)
   - [Open5GS on Amazon Elastic Kubernetes Service](https://aws.amazon.com/blogs/opensource/open-source-mobile-core-network-implementation-on-amazon-elastic-kubernetes-service/)
   - [Kubernetes Open5GS Deployment](https://dev.to/infinitydon/virtual-4g-simulation-using-kubernetes-and-gns3-3b7k?fbclid=IwAR1p99h13a-mCfejanbBQe0H0-jp5grXkn5mWf1WrTHf47UtegB2-UHGGZQ)
   - [5G Core SBI mTLS Using External Certificate PKI](https://futuredon.medium.com/5g-core-sbi-mtls-using-external-certificate-pki-4ffc02ac7728)
   - [5G Frame Routing](https://futuredon.medium.com/5g-frame-routing-6e34d8587123)
   - [5G SCTP LoadBalancer Using LoxiLB](https://futuredon.medium.com/5g-sctp-loadbalancer-using-loxilb-b525198a9103)([Video Link](https://youtu.be/k3ICc7MXcC8))
   - [5G Roaming With Mutual TLS](https://futuredon.medium.com/5g-roaming-with-mutual-tls-1468d109129c)
+  - [Building a Cloud-Native 5G Roaming Architecture with Open5GS](https://futuredon.medium.com/building-a-cloud-native-5g-roaming-architecture-with-open5gs-cert-manager-and-openbao-supporting-08168a937ddc)
 
 - @nickvsnetworking
   - [My first 5G Core : Open5GS and UERANSIM](http://nickvsnetworking.com/my-first-5g-core-open5gs-and-ueransim/)
@@ -85,3 +87,4 @@ head_inline: "<style> ul { padding-bottom: 1em; } </style>"
 
 - @loxilb
   - [Exploring 5G SCP with Open5GS and LoxiLB](https://dev.to/nikhilmalik/5g-service-communication-proxy-with-loxilb-4242)
+  - [NGAP Load Balancing with Open5GS and LoxiLB](https://www.loxilb.io/post/ngap-load-balancing-with-loxilb)

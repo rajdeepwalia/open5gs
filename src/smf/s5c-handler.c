@@ -155,7 +155,7 @@ uint8_t smf_s5c_handle_create_session_request(
         cause_value = OGS_GTP2_CAUSE_CONDITIONAL_IE_MISSING;
     }
 
-    if (!ogs_diam_app_connected(OGS_DIAM_GX_APPLICATION_ID)) {
+    if (!ogs_diam_is_relay_or_app_advertised(OGS_DIAM_GX_APPLICATION_ID)) {
         ogs_error("No Gx Diameter Peer");
         cause_value = OGS_GTP2_CAUSE_REMOTE_PEER_NOT_RESPONDING;
     }
@@ -172,7 +172,7 @@ uint8_t smf_s5c_handle_create_session_request(
         }
         break;
     case OGS_GTP2_RAT_TYPE_WLAN:
-        if (!ogs_diam_app_connected(OGS_DIAM_S6B_APPLICATION_ID)) {
+        if (!ogs_diam_is_relay_or_app_advertised(OGS_DIAM_S6B_APPLICATION_ID)) {
             ogs_error("No S6b Diameter Peer");
             cause_value = OGS_GTP2_CAUSE_REMOTE_PEER_NOT_RESPONDING;
         }
@@ -261,10 +261,18 @@ uint8_t smf_s5c_handle_create_session_request(
     /* Select PGW based on UE Location Information */
     smf_sess_select_upf(sess);
 
+    if (!sess->pfcp_node) {
+        ogs_error("[%s:%s] No UPF available for session",
+                  smf_ue->imsi_bcd, sess->session.name);
+        return OGS_GTP2_CAUSE_SYSTEM_FAILURE;
+    }
+
     /* Check if selected PGW is associated with SMF */
-    ogs_assert(sess->pfcp_node);
-    if (!OGS_FSM_CHECK(&sess->pfcp_node->sm, smf_pfcp_state_associated))
+    if (!OGS_FSM_CHECK(&sess->pfcp_node->sm, smf_pfcp_state_associated)) {
+        ogs_error("[%s:%s] selected UPF is not assocated with SMF",
+                  smf_ue->imsi_bcd, sess->session.name);
         return OGS_GTP2_CAUSE_REMOTE_PEER_NOT_RESPONDING;
+    }
 
     /* UE IP Address */
     paa = req->pdn_address_allocation.data;
@@ -445,6 +453,34 @@ uint8_t smf_s5c_handle_create_session_request(
             smf_ue->imeisv, smf_ue->imeisv_len, smf_ue->imeisv_bcd);
     }
 
+    /* Set Node Identifier */
+    if (req->_aaa_server_identifier.presence) {
+        ogs_gtp2_node_identifier_t node_identifier;
+        decoded = ogs_gtp2_parse_node_identifier(
+                &node_identifier, &req->_aaa_server_identifier);
+        if (req->_aaa_server_identifier.len == decoded) {
+            if (sess->aaa_server_identifier.name)
+                ogs_free(sess->aaa_server_identifier.name);
+            sess->aaa_server_identifier.name = ogs_memdup(
+                node_identifier.name, node_identifier.name_len+1);
+            ogs_assert(sess->aaa_server_identifier.name);
+            sess->aaa_server_identifier.name[node_identifier.name_len] = 0;
+
+            if (sess->aaa_server_identifier.realm)
+                ogs_free(sess->aaa_server_identifier.realm);
+            sess->aaa_server_identifier.realm = ogs_memdup(
+                node_identifier.realm, node_identifier.realm_len+1);
+            ogs_assert(sess->aaa_server_identifier.realm);
+            sess->aaa_server_identifier.realm[node_identifier.realm_len] = 0;
+        } else {
+            ogs_error("Invalid AAA Server Identifier [%d != %d]",
+                    req->_aaa_server_identifier.len, decoded);
+            ogs_log_hexdump(OGS_LOG_ERROR,
+                    req->_aaa_server_identifier.data,
+                    req->_aaa_server_identifier.len);
+        }
+    }
+
     return OGS_GTP2_CAUSE_REQUEST_ACCEPTED;
 }
 
@@ -457,13 +493,13 @@ uint8_t smf_s5c_handle_delete_session_request(
     ogs_assert(xact);
     ogs_assert(req);
 
-    if (!ogs_diam_app_connected(OGS_DIAM_GX_APPLICATION_ID)) {
+    if (!ogs_diam_is_relay_or_app_advertised(OGS_DIAM_GX_APPLICATION_ID)) {
         ogs_error("No Gx Diameter Peer");
         return OGS_GTP2_CAUSE_REMOTE_PEER_NOT_RESPONDING;
     }
 
     if (sess->gtp_rat_type == OGS_GTP2_RAT_TYPE_WLAN) {
-        if (!ogs_diam_app_connected(OGS_DIAM_S6B_APPLICATION_ID)) {
+        if (!ogs_diam_is_relay_or_app_advertised(OGS_DIAM_S6B_APPLICATION_ID)) {
             ogs_error("No S6b Diameter Peer");
             return OGS_GTP2_CAUSE_REMOTE_PEER_NOT_RESPONDING;
         }
@@ -857,7 +893,8 @@ void smf_s5c_handle_create_bearer_response(
 
     ogs_assert(OGS_OK ==
         smf_epc_pfcp_send_one_bearer_modification_request(
-            bearer, OGS_INVALID_POOL_ID, OGS_PFCP_MODIFY_ACTIVATE,
+            bearer, OGS_INVALID_POOL_ID,
+            OGS_PFCP_MODIFY_DL_ONLY|OGS_PFCP_MODIFY_ACTIVATE,
             OGS_NAS_PROCEDURE_TRANSACTION_IDENTITY_UNASSIGNED,
             OGS_GTP2_CAUSE_UNDEFINED_VALUE));
 }
@@ -1281,6 +1318,18 @@ void smf_s5c_handle_bearer_resource_command(
             sess->sgw_s5c_teid, sess->smf_n4_teid);
 
     decoded = ogs_gtp2_parse_tft(&tft, &cmd->traffic_aggregate_description);
+    if (cmd->traffic_aggregate_description.len != decoded) {
+        ogs_error("ogs_gtp2_parse_tft() failed");
+        ogs_log_hexdump(OGS_LOG_ERROR,
+            cmd->traffic_aggregate_description.data,
+            cmd->traffic_aggregate_description.len);
+        ogs_gtp2_send_error_message(
+                xact, get_sender_f_teid(sess, sender_f_teid),
+                OGS_GTP2_BEARER_RESOURCE_FAILURE_INDICATION_TYPE,
+                OGS_GTP2_CAUSE_INVALID_MESSAGE_FORMAT);
+        return;
+    }
+
     ogs_assert(cmd->traffic_aggregate_description.len == decoded);
 
     if (tft.code == OGS_GTP2_TFT_CODE_NO_TFT_OPERATION) {

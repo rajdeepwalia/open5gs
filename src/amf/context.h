@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2023 by Sukchan Lee <acetcom@gmail.com>
+ * Copyright (C) 2019-2025 by Sukchan Lee <acetcom@gmail.com>
  *
  * This file is part of Open5GS.
  *
@@ -44,6 +44,14 @@ typedef struct ran_ue_s ran_ue_t;
 typedef struct amf_ue_s amf_ue_t;
 
 typedef uint32_t amf_m_tmsi_t;
+
+typedef enum {
+    UE_CONTEXT_INITIAL_STATE = 0,
+    UE_CONTEXT_TRANSFER_OLD_AMF_STATE,
+    UE_CONTEXT_TRANSFER_NEW_AMF_STATE,
+    REGISTRATION_STATUS_UPDATE_OLD_AMF_STATE,
+    REGISTRATION_STATUS_UPDATE_NEW_AMF_STATE,
+} amf_ue_context_transfer_state_t;
 
 typedef struct amf_context_s {
     /* Served GUAMI */
@@ -131,6 +139,7 @@ typedef struct amf_gnb_s {
 
     ogs_fsm_t       sm;         /* A state machine */
 
+    bool            gnb_id_presence;
     uint32_t        gnb_id;     /* gNB_ID received from gNB */
     ogs_plmn_id_t   plmn_id;    /* gNB PLMN-ID received from gNB */
     ogs_sctp_sock_t sctp;       /* SCTP socket */
@@ -217,10 +226,77 @@ struct ran_ue_s {
         uint16_t    activated; /* Activated PSI Mask */
     } psimask;
 
+    /* UEContextReleaseRequest or InitialContextSetupFailure */
+    struct {
+        NGAP_Cause_PR group;
+        long cause;
+    } deactivation;
+
     /* Related Context */
     ogs_pool_id_t   gnb_id;
     ogs_pool_id_t   amf_ue_id;
 }; 
+
+typedef struct amf_ue_memento_s {
+    /* UE security capability info: supported security features. */
+    ogs_nas_ue_security_capability_t ue_security_capability;
+    /* UE network capability info: supported network features. */
+    ogs_nas_ue_network_capability_t ue_network_capability;
+
+    /* Random challenge value */
+    uint8_t rand[OGS_RAND_LEN];
+    /* Authentication token */
+    uint8_t autn[OGS_AUTN_LEN];
+    /* Expected auth response. */
+    uint8_t xres_star[OGS_MAX_RES_LEN];
+
+    /* NAS backoff parameter value. */
+    uint8_t abba[OGS_NAS_MAX_ABBA_LEN];
+    uint8_t abba_len;
+
+    /* Hash of XRES*. */
+    uint8_t hxres_star[OGS_MAX_RES_LEN];
+    /* Key for AMF derived from NAS key. */
+    uint8_t kamf[OGS_SHA256_DIGEST_SIZE];
+
+    /* Integrity and ciphering keys */
+    uint8_t knas_int[OGS_SHA256_DIGEST_SIZE/2];
+    uint8_t knas_enc[OGS_SHA256_DIGEST_SIZE/2];
+    /* Downlink counter */
+    uint32_t dl_count;
+    /* Uplink counter (24-bit stored in uint32_t) */
+    uint32_t ul_count;
+    /* gNB key derived from kasme */
+    uint8_t kgnb[OGS_SHA256_DIGEST_SIZE];
+
+    /*
+     * Next Hop Channing Counter
+     *
+     * Note that the "nhcc" field is not included in the backup
+     * because it is a transient counter used only during next-hop key
+     * derivation. In our design, only the persistent keying material
+     * and related values that are required to recreate the security context
+     * are backed up. The nhcc value is recalculated or updated dynamically
+     * when the next hop key is derived (e.g. via ogs_kdf_nh_enb()),
+     * so it is not necessary to store it in the backup.
+     *
+     * If there is a requirement to preserve the exact nhcc value across state
+     * transitions, you could add it to the backup structure, but typically
+     * it is treated as a computed, temporary value that can be reinitialized
+     * safely without compromising the security context.
+     * struct {
+     *   ED2(uint8_t nhcc_spare:5;,
+     *   uint8_t nhcc:3;)
+     * };
+     */
+
+    /* Next hop key */
+    uint8_t         nh[OGS_SHA256_DIGEST_SIZE];
+
+    /* Selected algorithms (set by UDM/subscription) */
+    uint8_t         selected_enc_algorithm;
+    uint8_t         selected_int_algorithm;
+} amf_ue_memento_t;
 
 struct amf_ue_s {
     ogs_sbi_object_t sbi;
@@ -253,6 +329,8 @@ struct amf_ue_s {
     /* UE identity */
 #define AMF_UE_HAVE_SUCI(__aMF) \
     ((__aMF) && ((__aMF)->suci))
+#define AMF_UE_HAVE_SUPI(__aMF) \
+    ((__aMF) && ((__aMF)->supi))
     char            *suci; /* TS33.501 : SUCI */
     char            *supi; /* TS33.501 : SUPI */
     ogs_nas_5gs_mobile_identity_suci_t nas_mobile_identity_suci;
@@ -274,7 +352,10 @@ struct amf_ue_s {
         ogs_nas_5gs_guti_t guti;
     } current, next;
 
+    /* UE context transfer and Registration status update */
     ogs_nas_5gs_guti_t old_guti;
+    amf_ue_context_transfer_state_t amf_ue_context_transfer_state;
+    OpenAPI_list_t *to_release_session_list;
 
     /* UE Info */
     ogs_guami_t     *guami;
@@ -347,6 +428,12 @@ struct amf_ue_s {
     int             security_context_available;
     int             mac_failed;
 
+    /* flag: 1 = allow restoration of context, 0 = disallow */
+    bool            can_restore_context;
+
+    /* Memento of context fields */
+    amf_ue_memento_t memento;
+
     /* Security Context */
     ogs_nas_ue_security_capability_t ue_security_capability;
     ogs_nas_ue_network_capability_t ue_network_capability;
@@ -371,20 +458,29 @@ struct amf_ue_s {
         char *resource_uri;
         ogs_sbi_client_t *client;
     } confirmation_for_5g_aka;
+    /* Random challenge value */
     uint8_t         rand[OGS_RAND_LEN];
+    /* Authentication token */
     uint8_t         autn[OGS_AUTN_LEN];
+    /* Expected auth response. */
     uint8_t         xres_star[OGS_MAX_RES_LEN];
 
+    /* NAS backoff parameter value. */
     uint8_t         abba[OGS_NAS_MAX_ABBA_LEN];
     uint8_t         abba_len;
 
+    /* Hash of XRES*. */
     uint8_t         hxres_star[OGS_MAX_RES_LEN];
+    /* Key for AMF derived from NAS key. */
     uint8_t         kamf[OGS_SHA256_DIGEST_SIZE];
     OpenAPI_auth_result_e auth_result;
 
+    /* Integrity and ciphering keys */
     uint8_t         knas_int[OGS_SHA256_DIGEST_SIZE/2];
     uint8_t         knas_enc[OGS_SHA256_DIGEST_SIZE/2];
+    /* Downlink counter */
     uint32_t        dl_count;
+    /* Uplink counter (24-bit stored in uint32_t) */
     union {
         struct {
         ED3(uint8_t spare;,
@@ -393,14 +489,17 @@ struct amf_ue_s {
         } __attribute__ ((packed));
         uint32_t i32;
     } ul_count;
+    /* gNB key derived from kasme */
     uint8_t         kgnb[OGS_SHA256_DIGEST_SIZE];
 
     struct {
     ED2(uint8_t nhcc_spare:5;,
         uint8_t nhcc:3;) /* Next Hop Channing Counter */
     };
+    /* Next hop key */
     uint8_t         nh[OGS_SHA256_DIGEST_SIZE]; /* NH Security Key */
 
+    /* Selected algorithms (set by UDM/subscription) */
     /* defined in 'lib/nas/common/types.h'
      * #define OGS_NAS_SECURITY_ALGORITHMS_NEA0        0
      * #define OGS_NAS_SECURITY_ALGORITHMS_128_NEA1    1
@@ -443,7 +542,7 @@ struct amf_ue_s {
         \
         ran_ue_holding = ran_ue_find_by_id((__aMF)->ran_ue_id); \
         if (ran_ue_holding) { \
-            ran_ue_deassociate(ran_ue_holding); \
+            ran_ue_holding->amf_ue_id = OGS_INVALID_POOL_ID; \
             \
             ogs_warn("[%s] Holding NG Context", (__aMF)->suci); \
             ogs_warn("[%s]    RAN_UE_NGAP_ID[%lld] AMF_UE_NGAP_ID[%lld]", \
@@ -514,12 +613,6 @@ struct amf_ue_s {
     /* UE Radio Capability */
     OCTET_STRING_t  ueRadioCapability;
 
-    /* UEContextReleaseRequest or InitialContextSetupFailure */
-    struct {
-        NGAP_Cause_PR group;
-        long cause;
-    } deactivation;
-
     /* Handover Info */
     struct {
         NGAP_HandoverType_t type;
@@ -586,36 +679,37 @@ typedef struct amf_sess_s {
 
     uint8_t psi;            /* PDU Session Identity */
     uint8_t pti;            /* Procedure Trasaction Identity */
+    uint8_t request_type;   /* Request type */
 
 #define SESSION_CONTEXT_IN_SMF(__sESS)  \
-    ((__sESS) && (__sESS)->sm_context.ref)
+    ((__sESS) && (__sESS)->sm_context_ref)
 #define STORE_SESSION_CONTEXT(__sESS, __rESOURCE_URI, __rEF) \
     do { \
         ogs_assert(__sESS); \
         ogs_assert(__rESOURCE_URI); \
         ogs_assert(__rEF); \
         CLEAR_SESSION_CONTEXT(__sESS); \
-        (__sESS)->sm_context.resource_uri = ogs_strdup(__rESOURCE_URI); \
-        ogs_assert((__sESS)->sm_context.resource_uri); \
-        (__sESS)->sm_context.ref = ogs_strdup(__rEF); \
-        ogs_assert((__sESS)->sm_context.ref); \
+        (__sESS)->sm_context_resource_uri = ogs_strdup(__rESOURCE_URI); \
+        ogs_assert((__sESS)->sm_context_resource_uri); \
+        (__sESS)->sm_context_ref = ogs_strdup(__rEF); \
+        ogs_assert((__sESS)->sm_context_ref); \
     } while(0);
 #define CLEAR_SESSION_CONTEXT(__sESS) \
     do { \
         ogs_assert(__sESS); \
-        if ((__sESS)->sm_context.ref) \
-            ogs_free((__sESS)->sm_context.ref); \
-        (__sESS)->sm_context.ref = NULL; \
-        if ((__sESS)->sm_context.resource_uri) \
-            ogs_free((__sESS)->sm_context.resource_uri); \
-        (__sESS)->sm_context.resource_uri = NULL; \
+        if ((__sESS)->sm_context_ref) \
+            ogs_free((__sESS)->sm_context_ref); \
+        (__sESS)->sm_context_ref = NULL; \
+        if ((__sESS)->sm_context_resource_uri) \
+            ogs_free((__sESS)->sm_context_resource_uri); \
+        (__sESS)->sm_context_resource_uri = NULL; \
     } while(0);
 
     /* SMF sends the RESPONSE
      * of [POST] /nsmf-pdusession/v1/sm-contexts */
+    char *sm_context_resource_uri;
+    char *sm_context_ref;
     struct {
-        char *resource_uri;
-        char *ref;
         ogs_sbi_client_t *client;
     } sm_context;
 
@@ -801,10 +895,11 @@ typedef struct amf_sess_s {
 
     struct {
         char *nsi_id;
+        char *nrf_uri;
         struct {
-            char *id;
             ogs_sbi_client_t *client;
         } nrf;
+        char *hnrf_uri;
     } nssf;
 
     /* last payload for sending back to the UE */
@@ -820,7 +915,9 @@ typedef struct amf_sess_s {
 
     ogs_s_nssai_t s_nssai;
     ogs_s_nssai_t mapped_hplmn;
+    bool mapped_hplmn_presence;
     char *dnn;
+    bool lbo_roaming_allowed;
 
 } amf_sess_t;
 
@@ -920,8 +1017,7 @@ OpenAPI_rat_type_e amf_ue_rat_type(amf_ue_t *amf_ue);
  *   - Delete Indirect Data Forwarding Tunnel Request/Response
  */
 void amf_ue_associate_ran_ue(amf_ue_t *amf_ue, ran_ue_t *ran_ue);
-void ran_ue_deassociate(ran_ue_t *ran_ue);
-void amf_ue_deassociate(amf_ue_t *amf_ue);
+void amf_ue_deassociate_ran_ue(amf_ue_t *amf_ue, ran_ue_t *ran_ue);
 void source_ue_associate_target_ue(ran_ue_t *source_ue, ran_ue_t *target_ue);
 void source_ue_deassociate_target_ue(ran_ue_t *ran_ue);
 
@@ -939,8 +1035,11 @@ amf_sess_t *amf_sess_add(amf_ue_t *amf_ue, uint8_t psi);
         ogs_assert(sbi_object); \
         \
         if (ogs_list_count(&sbi_object->xact_list)) { \
+            ogs_sbi_xact_t *xact = NULL; \
             ogs_error("SBI running [%d]", \
                     ogs_list_count(&sbi_object->xact_list)); \
+            ogs_list_for_each(&sbi_object->xact_list, xact) \
+                OGS_SBI_XACT_LOG(xact); \
         } else { \
             amf_sess_remove(__sESS); \
         } \
@@ -952,12 +1051,6 @@ amf_sess_t *amf_sess_find_by_dnn(amf_ue_t *amf_ue, char *dnn);
 
 amf_ue_t *amf_ue_find_by_id(ogs_pool_id_t id);
 amf_sess_t *amf_sess_find_by_id(ogs_pool_id_t id);
-
-void amf_sbi_select_nf(
-        ogs_sbi_object_t *sbi_object,
-        ogs_sbi_service_type_e service_type,
-        OpenAPI_nf_type_e requester_nf_type,
-        ogs_sbi_discovery_option_t *discovery_option);
 
 #define AMF_SESSION_SYNC_DONE(__aMF, __sTATE) \
     (amf_sess_xact_state_count(__aMF, __sTATE) == 0)
@@ -991,11 +1084,15 @@ int amf_m_tmsi_free(amf_m_tmsi_t *tmsi);
 uint8_t amf_selected_int_algorithm(amf_ue_t *amf_ue);
 uint8_t amf_selected_enc_algorithm(amf_ue_t *amf_ue);
 
+void amf_ue_save_memento(amf_ue_t *amf_ue, amf_ue_memento_t *memento);
+void amf_ue_restore_memento(amf_ue_t *amf_ue, const amf_ue_memento_t *memento);
+
 void amf_clear_subscribed_info(amf_ue_t *amf_ue);
 
 bool amf_update_allowed_nssai(amf_ue_t *amf_ue);
 bool amf_ue_is_rat_restricted(amf_ue_t *amf_ue);
 int amf_instance_get_load(void);
+void amf_ue_save_to_release_session_list(amf_ue_t *amf_ue);
 
 #ifdef __cplusplus
 }
