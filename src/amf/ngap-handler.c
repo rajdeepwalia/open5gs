@@ -38,14 +38,16 @@ static bool maximum_number_of_gnbs_is_reached(void)
 
 static bool gnb_plmn_id_is_foreign(amf_gnb_t *gnb)
 {
-    int i, j;
-
-    for (i = 0; i < gnb->num_of_supported_ta_list; i++) {
-        for (j = 0; j < gnb->supported_ta_list[i].num_of_bplmn_list; j++) {
-            if (memcmp(&gnb->plmn_id,
-                        &gnb->supported_ta_list[i].bplmn_list[j].plmn_id,
-                        OGS_PLMN_ID_LEN) == 0)
-                return false;
+    int i, j, k;
+    for (i = 0; i < amf_self()->num_of_plmn_support; i++) {
+        for (j = 0; j < gnb->num_of_supported_ta_list; j++) {
+            for (k = 0; k < gnb->supported_ta_list[j].num_of_bplmn_list; k++) {
+                if (memcmp(&amf_self()->plmn_support[i].plmn_id,
+                           &gnb->supported_ta_list[j].bplmn_list[k].plmn_id,
+                           OGS_PLMN_ID_LEN) == 0){
+                    return false;
+                }
+            }
         }
     }
 
@@ -1279,8 +1281,8 @@ void ngap_handle_initial_context_setup_failure(
 
         old_xact_count = amf_sess_xact_count(amf_ue);
 
-        amf_ue->deactivation.group = NGAP_Cause_PR_nas;
-        amf_ue->deactivation.cause = NGAP_CauseNas_normal_release;
+        ran_ue->deactivation.group = NGAP_Cause_PR_nas;
+        ran_ue->deactivation.cause = NGAP_CauseNas_normal_release;
 
         amf_sbi_send_deactivate_all_sessions(
                 ran_ue, amf_ue, AMF_UPDATE_SM_CONTEXT_DEACTIVATED,
@@ -1566,8 +1568,13 @@ void ngap_handle_ue_context_release_request(
         ogs_warn("NAS-Cause[%d]", (int)Cause->choice.nas);
         break;
     default:
-        ogs_warn("Invalid cause group[%d]", Cause->present);
-        break;
+        ogs_error("Invalid cause group [%d]", Cause->present);
+        r = ngap_send_error_indication(
+                gnb, &ran_ue->ran_ue_ngap_id, &ran_ue->amf_ue_ngap_id,
+                NGAP_Cause_PR_protocol, NGAP_CauseProtocol_semantic_error);
+        ogs_expect(r == OGS_OK);
+        ogs_assert(r != OGS_ERROR);
+        return;
     }
 
     amf_ue = amf_ue_find_by_id(ran_ue->amf_ue_id);
@@ -1582,8 +1589,8 @@ void ngap_handle_ue_context_release_request(
     } else {
         int xact_count = amf_sess_xact_count(amf_ue);
 
-        amf_ue->deactivation.group = Cause->present;
-        amf_ue->deactivation.cause = (int)Cause->choice.radioNetwork;
+        ran_ue->deactivation.group = Cause->present;
+        ran_ue->deactivation.cause = (int)Cause->choice.radioNetwork;
 
         if (!PDUSessionList) {
             amf_sbi_send_deactivate_all_sessions(
@@ -1626,7 +1633,7 @@ void ngap_handle_ue_context_release_request(
         }
  
         if (amf_sess_xact_count(amf_ue) == xact_count) {
-            r = ngap_send_amf_ue_context_release_command(amf_ue,
+            r = ngap_send_ran_ue_context_release_command(ran_ue,
                     Cause->present, (int)Cause->choice.radioNetwork,
                     NGAP_UE_CTX_REL_NG_REMOVE_AND_UNLINK, 0);
             ogs_expect(r == OGS_OK);
@@ -1748,12 +1755,6 @@ void ngap_handle_ue_context_release_action(ran_ue_t *ran_ue)
         break;
     case NGAP_UE_CTX_REL_NG_REMOVE_AND_UNLINK:
         ogs_debug("    Action: NG normal release");
-        ran_ue_remove(ran_ue);
-        if (!amf_ue) {
-            ogs_error("No UE(amf-ue) Context");
-            return;
-        }
-        amf_ue_deassociate(amf_ue);
 
         /*
          * When AMF release the NAS signalling connection,
@@ -1782,9 +1783,14 @@ void ngap_handle_ue_context_release_action(ran_ue_t *ran_ue)
          * TODO: If the UE is registered for emergency services, the AMF shall
          * set the mobile reachable timer with a value equal to timer T3512.
          */
-        ogs_timer_start(amf_ue->mobile_reachable.timer,
-                ogs_time_from_sec(amf_self()->time.t3512.value + 240));
+        if (amf_ue) {
+            amf_ue_deassociate_ran_ue(amf_ue, ran_ue);
+            ogs_timer_start(amf_ue->mobile_reachable.timer,
+                    ogs_time_from_sec(amf_self()->time.t3512.value + 240));
+        } else
+            ogs_error("No UE(amf-ue) Context");
 
+        ran_ue_remove(ran_ue);
         break;
 
     case NGAP_UE_CTX_REL_UE_CONTEXT_REMOVE:
@@ -2154,8 +2160,8 @@ void ngap_handle_pdu_session_resource_setup_response(
             param.n2SmInfoType = OpenAPI_n2_sm_info_type_PDU_RES_SETUP_FAIL;
             ogs_pkbuf_put_data(param.n2smbuf, transfer->buf, transfer->size);
 
-            amf_ue->deactivation.group = NGAP_Cause_PR_nas;
-            amf_ue->deactivation.cause = NGAP_CauseNas_normal_release;
+            ran_ue->deactivation.group = NGAP_Cause_PR_nas;
+            ran_ue->deactivation.cause = NGAP_CauseNas_normal_release;
 
             r = amf_sess_sbi_discover_and_send(
                     OGS_SBI_SERVICE_TYPE_NSMF_PDUSESSION, NULL,
@@ -4047,6 +4053,7 @@ void ngap_handle_handover_notification(
 {
     char buf[OGS_ADDRSTRLEN];
     int i, r;
+    int xact_count;
 
     amf_ue_t *amf_ue = NULL;
     amf_sess_t *sess = NULL;
@@ -4206,15 +4213,14 @@ void ngap_handle_handover_notification(
     ogs_expect(r == OGS_OK);
     ogs_assert(r != OGS_ERROR);
 
+    /* Save the number of ongoing SMF transactions before processing sessions */
+    xact_count = amf_sess_xact_count(amf_ue);
+
     ogs_list_for_each(&amf_ue->sess_list, sess) {
         if (!SESSION_CONTEXT_IN_SMF(sess)) {
-            ogs_error("Session Context is not in SMF [%d]", sess->psi);
-            r = ngap_send_error_indication2(source_ue,
-                    NGAP_Cause_PR_radioNetwork,
-                    NGAP_CauseRadioNetwork_partial_handover);
-            ogs_expect(r == OGS_OK);
-            ogs_assert(r != OGS_ERROR);
-            return;
+            /* Warn if this UE session is not handled by SMF and skip it */
+            ogs_warn("Session Context is not in SMF [%d]", sess->psi);
+            continue;
         }
 
         memset(&param, 0, sizeof(param));
@@ -4224,6 +4230,19 @@ void ngap_handle_handover_notification(
                 OGS_SBI_SERVICE_TYPE_NSMF_PDUSESSION, NULL,
                 amf_nsmf_pdusession_build_update_sm_context,
                 source_ue, sess, AMF_UPDATE_SM_CONTEXT_HANDOVER_NOTIFY, &param);
+        ogs_expect(r == OGS_OK);
+        ogs_assert(r != OGS_ERROR);
+    }
+
+    /*
+     * If no SMF sessions were processed (transaction count unchanged),
+     * send partial-handover error
+     */
+    if (xact_count == amf_sess_xact_count(amf_ue)) {
+        ogs_error("No SMF session were processed [%d]", sess->psi);
+        r = ngap_send_error_indication2(source_ue,
+                NGAP_Cause_PR_radioNetwork,
+                NGAP_CauseRadioNetwork_partial_handover);
         ogs_expect(r == OGS_OK);
         ogs_assert(r != OGS_ERROR);
     }

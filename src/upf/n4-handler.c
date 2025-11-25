@@ -152,8 +152,21 @@ void upf_n4_handle_session_establishment_request(
             pdr = created_pdr[i];
             ogs_assert(pdr);
 
-            if (pdr->f_teid_len)
-                ogs_pfcp_pdr_swap_teid(pdr);
+    /*
+     * Only perform TEID restoration via swap when F-TEID.ch is false.
+     *
+     * When F-TEID.ch is false, it means the TEID has already been assigned, and
+     * the restoration process can safely perform the swap.
+     *
+     * If F-TEID.ch is true, it indicates that the UPF needs to assign
+     * a new TEID for the first time, so performing a swap is not appropriate
+     * in this case.
+     */
+            if (pdr->f_teid_len > 0 && pdr->f_teid.ch == false) {
+                cause_value = ogs_pfcp_pdr_swap_teid(pdr);
+                if (cause_value != OGS_PFCP_CAUSE_REQUEST_ACCEPTED)
+                    goto cleanup;
+            }
         }
         restoration_indication = true;
     }
@@ -198,7 +211,7 @@ void upf_n4_handle_session_establishment_request(
     /* Send Buffered Packet to gNB/SGW */
     ogs_list_for_each(&sess->pfcp.pdr_list, pdr) {
         if (pdr->src_if == OGS_PFCP_INTERFACE_CORE) { /* Downlink */
-            ogs_pfcp_send_buffered_packet(pdr);
+            ogs_pfcp_send_buffered_gtpu(pdr);
         }
     }
 
@@ -401,7 +414,7 @@ void upf_n4_handle_session_modification_request(
     /* Send Buffered Packet to gNB/SGW */
     ogs_list_for_each(&sess->pfcp.pdr_list, pdr) {
         if (pdr->src_if == OGS_PFCP_INTERFACE_CORE) { /* Downlink */
-            ogs_pfcp_send_buffered_packet(pdr);
+            ogs_pfcp_send_buffered_gtpu(pdr);
         }
     }
 

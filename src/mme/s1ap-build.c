@@ -372,30 +372,39 @@ static void fill_e_rab_to_be_setup(
 
     if (bearer->qos.mbr.downlink || bearer->qos.mbr.uplink ||
         bearer->qos.gbr.downlink || bearer->qos.gbr.uplink) {
-        ogs_assert(bearer->qos.mbr.downlink);
-        ogs_assert(bearer->qos.mbr.uplink);
-        ogs_assert(bearer->qos.gbr.downlink);
-        ogs_assert(bearer->qos.gbr.uplink);
+        if (bearer->qos.mbr.downlink && bearer->qos.mbr.uplink &&
+            bearer->qos.gbr.downlink && bearer->qos.gbr.uplink) {
 
-        ogs_debug("    MBR[DL:%lld,UL:%lld]",
-            (long long)bearer->qos.mbr.downlink,
-            (long long)bearer->qos.mbr.uplink);
-        ogs_debug("    GBR[DL:%lld,UL:%lld]",
-            (long long)bearer->qos.gbr.downlink,
-            (long long)bearer->qos.gbr.uplink);
+            ogs_debug("    MBR[DL:%lld,UL:%lld]",
+                (long long)bearer->qos.mbr.downlink,
+                (long long)bearer->qos.mbr.uplink);
+            ogs_debug("    GBR[DL:%lld,UL:%lld]",
+                (long long)bearer->qos.gbr.downlink,
+                (long long)bearer->qos.gbr.uplink);
 
-        gbrQosInformation =
-                CALLOC(1, sizeof(struct S1AP_GBR_QosInformation));
-        asn_uint642INTEGER(&gbrQosInformation->e_RAB_MaximumBitrateDL,
-                bearer->qos.mbr.downlink);
-        asn_uint642INTEGER(&gbrQosInformation->e_RAB_MaximumBitrateUL,
-                bearer->qos.mbr.uplink);
-        asn_uint642INTEGER(&gbrQosInformation->
-                e_RAB_GuaranteedBitrateDL, bearer->qos.gbr.downlink);
-        asn_uint642INTEGER(&gbrQosInformation->
-                e_RAB_GuaranteedBitrateUL, bearer->qos.gbr.uplink);
-        e_rab->e_RABlevelQoSParameters.gbrQosInformation =
-                gbrQosInformation;
+            gbrQosInformation =
+                    CALLOC(1, sizeof(struct S1AP_GBR_QosInformation));
+            asn_uint642INTEGER(&gbrQosInformation->e_RAB_MaximumBitrateDL,
+                    bearer->qos.mbr.downlink);
+            asn_uint642INTEGER(&gbrQosInformation->e_RAB_MaximumBitrateUL,
+                    bearer->qos.mbr.uplink);
+            asn_uint642INTEGER(&gbrQosInformation->
+                    e_RAB_GuaranteedBitrateDL, bearer->qos.gbr.downlink);
+            asn_uint642INTEGER(&gbrQosInformation->
+                    e_RAB_GuaranteedBitrateUL, bearer->qos.gbr.uplink);
+            e_rab->e_RABlevelQoSParameters.gbrQosInformation =
+                    gbrQosInformation;
+
+        } else {
+            ogs_error("Missing one or more MBR/GBR parameters; "
+                    "defaulting to Non-GBR flow ");
+            ogs_error("    MBR[DL:%lld,UL:%lld]",
+                (long long)bearer->qos.mbr.downlink,
+                (long long)bearer->qos.mbr.uplink);
+            ogs_error("    GBR[DL:%lld,UL:%lld]",
+                (long long)bearer->qos.gbr.downlink,
+                (long long)bearer->qos.gbr.uplink);
+        }
     }
 
     rv = ogs_asn_ip_to_BIT_STRING(
@@ -692,7 +701,7 @@ ogs_pkbuf_t *s1ap_build_initial_context_setup_request(
     ogs_log_hexdump(OGS_LOG_DEBUG, SecurityKey->buf, SecurityKey->size);
 
     if (mme_ue->nas_eps.type == MME_EPS_TYPE_EXTENDED_SERVICE_REQUEST &&
-        MME_P_TMSI_IS_AVAILABLE(mme_ue)) {
+        MME_CURRENT_P_TMSI_IS_AVAILABLE(mme_ue)) {
 
         /* Set CS-Fallback */
         S1AP_CSFallbackIndicator_t *CSFallbackIndicator = NULL;
@@ -727,7 +736,7 @@ ogs_pkbuf_t *s1ap_build_initial_context_setup_request(
         ogs_s1ap_buffer_to_OCTET_STRING(
             &mme_ue->tai.plmn_id, sizeof(ogs_plmn_id_t), &LAI->pLMNidentity);
         ogs_assert(mme_ue->csmap);
-        ogs_assert(mme_ue->p_tmsi);
+        ogs_assert(mme_ue->current.p_tmsi);
         ogs_asn_uint16_to_OCTET_STRING(mme_ue->csmap->lai.lac, &LAI->lAC);
 
     }
@@ -891,7 +900,7 @@ ogs_pkbuf_t *s1ap_build_ue_context_modification_request(mme_ue_t *mme_ue)
             enb_ue->enb_ue_s1ap_id, enb_ue->mme_ue_s1ap_id);
 
     if (mme_ue->nas_eps.type == MME_EPS_TYPE_EXTENDED_SERVICE_REQUEST &&
-        MME_P_TMSI_IS_AVAILABLE(mme_ue)) {
+        MME_CURRENT_P_TMSI_IS_AVAILABLE(mme_ue)) {
         ie = CALLOC(1, sizeof(S1AP_UEContextModificationRequestIEs_t));
         ASN_SEQUENCE_ADD(&UEContextModificationRequest->protocolIEs, ie);
 
@@ -919,7 +928,7 @@ ogs_pkbuf_t *s1ap_build_ue_context_modification_request(mme_ue_t *mme_ue)
         ogs_s1ap_buffer_to_OCTET_STRING(
             &mme_ue->tai.plmn_id, sizeof(ogs_plmn_id_t), &LAI->pLMNidentity);
         ogs_assert(mme_ue->csmap);
-        ogs_assert(mme_ue->p_tmsi);
+        ogs_assert(mme_ue->current.p_tmsi);
         ogs_asn_uint16_to_OCTET_STRING(mme_ue->csmap->lai.lac, &LAI->lAC);
 
     } else {
@@ -1141,21 +1150,31 @@ ogs_pkbuf_t *s1ap_build_e_rab_setup_request(
 
     if (bearer->qos.mbr.downlink || bearer->qos.mbr.uplink ||
         bearer->qos.gbr.downlink || bearer->qos.gbr.uplink) {
-        ogs_assert(bearer->qos.mbr.downlink);
-        ogs_assert(bearer->qos.mbr.uplink);
-        ogs_assert(bearer->qos.gbr.downlink);
-        ogs_assert(bearer->qos.gbr.uplink);
+        if (bearer->qos.mbr.downlink && bearer->qos.mbr.uplink &&
+            bearer->qos.gbr.downlink && bearer->qos.gbr.uplink) {
 
-        gbrQosInformation = CALLOC(1, sizeof(S1AP_GBR_QosInformation_t));
-        asn_uint642INTEGER(&gbrQosInformation->e_RAB_MaximumBitrateDL,
-                bearer->qos.mbr.downlink);
-        asn_uint642INTEGER(&gbrQosInformation->e_RAB_MaximumBitrateUL,
-                bearer->qos.mbr.uplink);
-        asn_uint642INTEGER(&gbrQosInformation->e_RAB_GuaranteedBitrateDL,
-                bearer->qos.gbr.downlink);
-        asn_uint642INTEGER(&gbrQosInformation->e_RAB_GuaranteedBitrateUL,
-                bearer->qos.gbr.uplink);
-        e_rab->e_RABlevelQoSParameters.gbrQosInformation = gbrQosInformation;
+            gbrQosInformation = CALLOC(1, sizeof(S1AP_GBR_QosInformation_t));
+            asn_uint642INTEGER(&gbrQosInformation->e_RAB_MaximumBitrateDL,
+                    bearer->qos.mbr.downlink);
+            asn_uint642INTEGER(&gbrQosInformation->e_RAB_MaximumBitrateUL,
+                    bearer->qos.mbr.uplink);
+            asn_uint642INTEGER(&gbrQosInformation->e_RAB_GuaranteedBitrateDL,
+                    bearer->qos.gbr.downlink);
+            asn_uint642INTEGER(&gbrQosInformation->e_RAB_GuaranteedBitrateUL,
+                    bearer->qos.gbr.uplink);
+            e_rab->e_RABlevelQoSParameters.gbrQosInformation =
+                gbrQosInformation;
+
+        } else {
+            ogs_error("Missing one or more MBR/GBR parameters; "
+                    "defaulting to Non-GBR flow ");
+            ogs_error("    MBR[DL:%lld,UL:%lld]",
+                (long long)bearer->qos.mbr.downlink,
+                (long long)bearer->qos.mbr.uplink);
+            ogs_error("    GBR[DL:%lld,UL:%lld]",
+                (long long)bearer->qos.gbr.downlink,
+                (long long)bearer->qos.gbr.uplink);
+        }
     }
 
     rv = ogs_asn_ip_to_BIT_STRING(

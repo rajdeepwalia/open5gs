@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2019-2023 by Sukchan Lee <acetcom@gmail.com>
+ * Copyright (C) 2019-2025 by Sukchan Lee <acetcom@gmail.com>
  *
  * This file is part of Open5GS.
  *
@@ -19,6 +19,7 @@
 
 #include "sbi-path.h"
 #include "pfcp-path.h"
+#include "local-path.h"
 
 #include "n4-handler.h"
 
@@ -28,7 +29,6 @@ static void node_timeout(ogs_pfcp_xact_t *xact, void *data);
 
 void smf_pfcp_state_initial(ogs_fsm_t *s, smf_event_t *e)
 {
-    int rv;
     ogs_pfcp_node_t *node = NULL;
 
     ogs_assert(s);
@@ -38,10 +38,6 @@ void smf_pfcp_state_initial(ogs_fsm_t *s, smf_event_t *e)
 
     node = e->pfcp_node;
     ogs_assert(node);
-
-    rv = ogs_pfcp_connect(
-            ogs_pfcp_self()->pfcp_sock, ogs_pfcp_self()->pfcp_sock6, node);
-    ogs_assert(rv == OGS_OK);
 
     node->t_no_heartbeat = ogs_timer_add(ogs_app()->timer_mgr,
             smf_timer_pfcp_no_heartbeat, node);
@@ -66,13 +62,10 @@ void smf_pfcp_state_final(ogs_fsm_t *s, smf_event_t *e)
 
 void smf_pfcp_state_will_associate(ogs_fsm_t *s, smf_event_t *e)
 {
-    char buf[OGS_ADDRSTRLEN];
-
     ogs_pfcp_node_t *node = NULL;
     ogs_pfcp_xact_t *xact = NULL;
     ogs_pfcp_message_t *message = NULL;
 
-    ogs_sockaddr_t *addr = NULL;
     smf_sess_t *sess;
 
     ogs_assert(s);
@@ -82,8 +75,6 @@ void smf_pfcp_state_will_associate(ogs_fsm_t *s, smf_event_t *e)
 
     node = e->pfcp_node;
     ogs_assert(node);
-    addr = node->sa_list;
-    ogs_assert(addr);
 
     switch (e->h.id) {
     case OGS_FSM_ENTRY_SIG:
@@ -107,8 +98,8 @@ void smf_pfcp_state_will_associate(ogs_fsm_t *s, smf_event_t *e)
             node = e->pfcp_node;
             ogs_assert(node);
 
-            ogs_warn("Retry association with peer [%s]:%d failed",
-                        OGS_ADDR(addr, buf), OGS_PORT(addr));
+            ogs_warn("Retry association with peer failed %s",
+                    ogs_sockaddr_to_string_static(node->addr_list));
 
             ogs_assert(node->t_association);
             ogs_timer_start(node->t_association,
@@ -179,13 +170,10 @@ void smf_pfcp_state_will_associate(ogs_fsm_t *s, smf_event_t *e)
 
 void smf_pfcp_state_associated(ogs_fsm_t *s, smf_event_t *e)
 {
-    char buf[OGS_ADDRSTRLEN];
-
     ogs_pfcp_node_t *node = NULL;
     ogs_pfcp_xact_t *xact = NULL;
     ogs_pfcp_message_t *message = NULL;
 
-    ogs_sockaddr_t *addr = NULL;
     smf_sess_t *sess = NULL;
 
     ogs_assert(s);
@@ -195,14 +183,11 @@ void smf_pfcp_state_associated(ogs_fsm_t *s, smf_event_t *e)
 
     node = e->pfcp_node;
     ogs_assert(node);
-    addr = node->sa_list;
-    ogs_assert(addr);
 
     switch (e->h.id) {
     case OGS_FSM_ENTRY_SIG:
-        ogs_info("PFCP associated [%s]:%d",
-            OGS_ADDR(&node->addr, buf),
-            OGS_PORT(&node->addr));
+        ogs_info("PFCP associated %s",
+                ogs_sockaddr_to_string_static(node->addr_list));
         ogs_timer_start(node->t_no_heartbeat,
                 ogs_local_conf()->time.message.pfcp.no_heartbeat_duration);
         ogs_assert(OGS_OK ==
@@ -213,12 +198,15 @@ void smf_pfcp_state_associated(ogs_fsm_t *s, smf_event_t *e)
             node->restoration_required = false;
             ogs_error("PFCP restoration");
         }
+
+        smf_metrics_inst_global_inc(SMF_METR_GLOB_GAUGE_PFCP_PEERS_ACTIVE);
         break;
     case OGS_FSM_EXIT_SIG:
-        ogs_info("PFCP de-associated [%s]:%d",
-            OGS_ADDR(&node->addr, buf),
-            OGS_PORT(&node->addr));
+        ogs_info("PFCP de-associated %s",
+            ogs_sockaddr_to_string_static(node->addr_list));
         ogs_timer_stop(node->t_no_heartbeat);
+
+        smf_metrics_inst_global_dec(SMF_METR_GLOB_GAUGE_PFCP_PEERS_ACTIVE);
         break;
     case SMF_EVT_N4_MESSAGE:
         message = e->pfcp_message;
@@ -296,16 +284,14 @@ void smf_pfcp_state_associated(ogs_fsm_t *s, smf_event_t *e)
             }
             break;
         case OGS_PFCP_ASSOCIATION_SETUP_REQUEST_TYPE:
-            ogs_warn("PFCP[REQ] has already been associated [%s]:%d",
-                OGS_ADDR(&node->addr, buf),
-                OGS_PORT(&node->addr));
+            ogs_warn("PFCP[REQ] has already been associated %s",
+                    ogs_sockaddr_to_string_static(node->addr_list));
             ogs_pfcp_cp_handle_association_setup_request(node, xact,
                     &message->pfcp_association_setup_request);
             break;
         case OGS_PFCP_ASSOCIATION_SETUP_RESPONSE_TYPE:
-            ogs_warn("PFCP[RSP] has already been associated [%s]:%d",
-                OGS_ADDR(&node->addr, buf),
-                OGS_PORT(&node->addr));
+            ogs_warn("PFCP[RSP] has already been associated %s",
+                    ogs_sockaddr_to_string_static(node->addr_list));
             ogs_pfcp_cp_handle_association_setup_response(node, xact,
                     &message->pfcp_association_setup_response);
             break;
@@ -421,8 +407,8 @@ void smf_pfcp_state_associated(ogs_fsm_t *s, smf_event_t *e)
         }
         break;
     case SMF_EVT_N4_NO_HEARTBEAT:
-        ogs_warn("No Heartbeat from UPF [%s]:%d",
-                    OGS_ADDR(addr, buf), OGS_PORT(addr));
+        ogs_warn("No Heartbeat from UPF %s",
+                ogs_sockaddr_to_string_static(node->addr_list));
 
         /*
          * reselect_upf() should not be executed on node_timeout
@@ -495,7 +481,8 @@ static void pfcp_restoration(ogs_pfcp_node_t *node)
                             OGS_INET6_NTOP(&sess->ipv6->addr, buf2) : "");
                     ogs_assert(OGS_OK ==
                             smf_5gc_pfcp_send_session_establishment_request(
-                                sess, OGS_PFCP_CREATE_RESTORATION_INDICATION));
+                                sess, NULL,
+                                OGS_PFCP_CREATE_RESTORATION_INDICATION));
                 }
             }
         }
@@ -504,7 +491,6 @@ static void pfcp_restoration(ogs_pfcp_node_t *node)
 
 static void reselect_upf(ogs_pfcp_node_t *node)
 {
-    int r;
     smf_ue_t *smf_ue = NULL;
     ogs_pfcp_node_t *iter = NULL;
 
@@ -537,27 +523,9 @@ static void reselect_upf(ogs_pfcp_node_t *node)
                     ogs_error("[%s:%s] EPC restoration is not implemented",
                             smf_ue->imsi_bcd, sess->session.name);
                 } else {
-                    if (PCF_SM_POLICY_ASSOCIATED(sess)) {
-                        smf_npcf_smpolicycontrol_param_t param;
-
-                        ogs_info("[%s:%d] SMF-initiated Deletion",
-                                smf_ue->supi, sess->psi);
-                        ogs_assert(sess->sm_context_ref);
-                        memset(&param, 0, sizeof(param));
-                        r = smf_sbi_discover_and_send(
-                                OGS_SBI_SERVICE_TYPE_NPCF_SMPOLICYCONTROL, NULL,
-                                smf_npcf_smpolicycontrol_build_delete,
-                                sess, NULL,
-                                OGS_PFCP_DELETE_TRIGGER_SMF_INITIATED,
-                                &param);
-                        ogs_expect(r == OGS_OK);
-                        ogs_assert(r != OGS_ERROR);
-                    } else {
-                        ogs_error("[%s:%d] No PolicyAssociationId. "
-                                "Forcibly remove SESSION",
-                                smf_ue->supi, sess->psi);
-                        SMF_SESS_CLEAR(sess);
-                    }
+                    smf_trigger_session_release(
+                            sess, NULL,
+                            OGS_PFCP_DELETE_TRIGGER_SMF_INITIATED);
                 }
             }
         }

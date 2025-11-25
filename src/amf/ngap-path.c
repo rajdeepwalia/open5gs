@@ -168,9 +168,15 @@ int ngap_send_to_nas(ran_ue_t *ran_ue,
     ogs_assert(ran_ue);
     ogs_assert(nasPdu);
 
+    if (nasPdu->size == 0) {
+        ogs_error("Empty NAS PDU");
+        ran_ue_remove(ran_ue);
+        return OGS_ERROR;
+    }
+
     amf_ue = amf_ue_find_by_id(ran_ue->amf_ue_id);
 
-    /* The Packet Buffer(pkbuf_t) for NAS message MUST make a HEADROOM. 
+    /* The Packet Buffer(pkbuf_t) for NAS message MUST make a HEADROOM.
      * When calculating AES_CMAC, we need to use the headroom of the packet. */
     nasbuf = ogs_pkbuf_alloc(NULL, OGS_NAS_HEADROOM+nasPdu->size);
     ogs_assert(nasbuf);
@@ -411,26 +417,6 @@ int ngap_send_ran_ue_context_release_command(
 
     ogs_timer_start(ran_ue->t_ng_holding,
             amf_timer_cfg(AMF_TIMER_NG_HOLDING)->duration);
-
-    return rv;
-}
-
-int ngap_send_amf_ue_context_release_command(
-    amf_ue_t *amf_ue, NGAP_Cause_PR group, long cause,
-    uint8_t action, ogs_time_t duration)
-{
-    int rv;
-
-    if (!amf_ue) {
-        ogs_error("UE(amf-ue) context has already been removed");
-        return OGS_NOTFOUND;
-    }
-
-    rv = ngap_send_ran_ue_context_release_command(
-            ran_ue_find_by_id(amf_ue->ran_ue_id),
-            group, cause, action, duration);
-    ogs_expect(rv == OGS_OK);
-    ogs_debug("    SUPI[%s]", amf_ue->supi);
 
     return rv;
 }
