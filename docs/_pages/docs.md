@@ -17,6 +17,7 @@ head_inline: "<style> ul { padding-bottom: 1em; } </style>"
   - [VoLTE Setup with Kamailio IMS and Open5GS](tutorial/02-VoLTE-setup)
   - [Dockerized VoLTE Setup](tutorial/03-VoLTE-dockerized)
   - [Roaming](tutorial/05-roaming)
+  - [infoAPI for accessing UE, gNB/eNB, and session data](tutorial/07-infoAPI-UE-gNB-session-data)
 
 - In the lab
   - [A Demonstration of 30 Gbps Load Testing for Accelerated UPF with Open5gs](https://nextepc.com/technology)
@@ -84,6 +85,9 @@ head_inline: "<style> ul { padding-bottom: 1em; } </style>"
   - [Open5GS and OAI-GNB](https://gradiant.github.io/5g-charts/open5gs-oaignb.html)
   - [Open5GS and srsenb](https://gradiant.github.io/5g-charts/open5gs-srsenb.html)
   - [Open5GS with SCP(Service Communication Proxy](https://gradiant.github.io/5g-charts/open5gs-scp.html)
+
+- @gradiant operator
+  - [Open5GS Operator](https://github.com/Gradiant/open5gs-operator)
 
 - @loxilb
   - [Exploring 5G SCP with Open5GS and LoxiLB](https://dev.to/nikhilmalik/5g-service-communication-proxy-with-loxilb-4242)
