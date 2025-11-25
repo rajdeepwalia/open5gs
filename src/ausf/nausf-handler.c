@@ -98,11 +98,6 @@ bool ausf_nausf_auth_handle_authenticate_confirmation(ausf_ue_t *ausf_ue,
     ogs_ascii_to_hex(res_star_string, strlen(res_star_string),
             res_star, sizeof(res_star));
 
-    /* 
-     * Bypassing below lines to skip validation of the response sent from UE.
-     * Rajdeep Ahluwalia 
-     */
-    /*
     if (memcmp(res_star, ausf_ue->xres_star, OGS_MAX_RES_LEN) != 0) {
         ogs_log_hexdump(OGS_LOG_WARN, res_star, OGS_MAX_RES_LEN);
         ogs_log_hexdump(OGS_LOG_WARN, ausf_ue->xres_star, OGS_MAX_RES_LEN);
@@ -111,11 +106,6 @@ bool ausf_nausf_auth_handle_authenticate_confirmation(ausf_ue_t *ausf_ue,
     } else {
         ausf_ue->auth_result = OpenAPI_auth_result_AUTHENTICATION_SUCCESS;
     }
-    */
-
-    ogs_log_hexdump(OGS_LOG_WARN, res_star, OGS_MAX_RES_LEN);
-    ogs_log_hexdump(OGS_LOG_WARN, ausf_ue->xres_star, OGS_MAX_RES_LEN);
-    ausf_ue->auth_result = OpenAPI_auth_result_AUTHENTICATION_SUCCESS;
 
     r = ausf_sbi_discover_and_send(
             OGS_SBI_SERVICE_TYPE_NUDM_UEAU, NULL,
