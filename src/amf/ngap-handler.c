@@ -145,6 +145,23 @@ void ngap_handle_ng_setup_request(amf_gnb_t *gnb, ogs_ngap_message_t *message)
 
     ogs_debug("NGSetupRequest");
 
+    /*
+     * Added the below section to handle maintenance mode when 
+     * relative_capacity is set to 0
+     */
+    if (amf_self()->relative_capacity == 0) {
+        ogs_error("No Capacity");
+        group = NGAP_Cause_PR_misc;
+        cause = NGAP_CauseMisc_om_intervention;
+        r = ngap_send_ng_setup_failure(gnb, group, cause);
+        ogs_expect(r == OGS_OK);
+        ogs_assert(r != OGS_ERROR);
+        return;
+    }
+    /*
+     * end of changes
+     */
+
     for (i = 0; i < NGSetupRequest->protocolIEs.list.count; i++) {
         ie = NGSetupRequest->protocolIEs.list.array[i];
         switch (ie->id) {
